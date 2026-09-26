@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>バトル調整卓</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#E9ECEE; --paper2:#F6F8F9; --grid:#D2DAE0; --grid2:#C0CBD4;
+  --ink:#16202A; --ink-soft:#5A6975; --line:#AEBAC4;
+  --p1:#BE2038; --p2:#14618F; --gold:#9A7400; --ok:#2F6B3C;
+  --shadow:rgba(22,32,42,.10);
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+:root:not([data-theme="light"]){
+  @media (prefers-color-scheme: dark){
+    --paper:#141A20; --paper2:#1B232B; --grid:#232E37; --grid2:#2C3945;
+    --ink:#E4EAEF; --ink-soft:#93A2AE; --line:#3A4854;
+    --p1:#F0647A; --p2:#5FB4E6; --gold:#D8B23F; --ok:#6FC086;
+    --shadow:rgba(0,0,0,.4);
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#141A20; --paper2:#1B232B; --grid:#232E37; --grid2:#2C3945;
+  --ink:#E4EAEF; --ink-soft:#93A2AE; --line:#3A4854;
+  --p1:#F0647A; --p2:#5FB4E6; --gold:#D8B23F; --ok:#6FC086;
+  --shadow:rgba(0,0,0,.4);
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px);-webkit-text-size-adjust:100%}
+body{
+  margin:0; font-family:"Zen Kaku Gothic New",system-ui,sans-serif;
+  color:var(--ink); background-color:var(--paper);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+    linear-gradient(var(--grid2) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid2) 1px, transparent 1px);
+  background-size:20px 20px,20px 20px,100px 100px,100px 100px;
+  line-height:1.6; font-size:15px;
+}
+.num{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.wrap{max-width:1040px;margin:0 auto;padding:16px 14px 64px}
+h1,h2,h3{margin:0;font-weight:900;letter-spacing:.02em}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:inherit}
+
+.top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:baseline;
+  border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:18px}
+.top h1{font-size:19px}
+.top .code{font-size:13px;color:var(--ink-soft)}
+.top .code b{color:var(--ink);letter-spacing:.18em}
+.spacer{flex:1}
+
+.track{display:flex;gap:5px;align-items:center}
+.track i{width:17px;height:17px;border:1.5px solid var(--line);border-radius:3px;
+  display:grid;place-items:center;font-style:normal;font-size:10px;font-weight:700;background:var(--paper2)}
+.track i.now{border-color:var(--ink);border-width:2px}
+.track i.w1{background:var(--p1);border-color:var(--p1);color:var(--paper2)}
+.track i.w2{background:var(--p2);border-color:var(--p2);color:var(--paper2)}
+.track i.dr{background:var(--line);border-color:var(--line);color:var(--paper2)}
+
+.skipBox{display:flex;align-items:center;gap:6px}
+.skipSq{width:15px;height:15px;border:1.5px solid var(--line);border-radius:3px;background:var(--paper2);display:inline-block}
+.skipSq.on{background:var(--ok);border-color:var(--ok)}
+
+.panel{background:var(--paper2);border:1.5px solid var(--line);border-radius:6px;padding:16px;margin-bottom:14px;
+  box-shadow:0 1px 0 var(--shadow)}
+.panel > h2{font-size:15px;margin-bottom:12px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.panel > h2 small{font-weight:400;font-size:12px;color:var(--ink-soft)}
+
+.btn{background:var(--ink);color:var(--paper2);border:none;border-radius:5px;
+  padding:10px 18px;font-weight:700;letter-spacing:.03em}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line)}
+.btn.sm{padding:6px 12px;font-size:13px}
+.btn:focus-visible,.skill:focus-visible{outline:2.5px solid var(--gold);outline-offset:2px}
+
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.muted{color:var(--ink-soft);font-size:13px}
+
+.lobby{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+@media(max-width:720px){.lobby{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:3px;margin-bottom:9px}
+.field label{font-size:12px;color:var(--ink-soft);font-weight:500}
+.field input,.field select{background:var(--paper);border:1.5px solid var(--line);border-radius:4px;padding:7px 9px}
+.cfg{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+.codebox{font-size:30px;font-weight:900;letter-spacing:.24em;padding:10px 0}
+
+.wallet{display:flex;flex-wrap:wrap;gap:8px;align-items:baseline}
+.wallet .big{font-size:30px;font-weight:900;color:var(--gold)}
+.chip{border:1.5px solid var(--line);border-radius:999px;padding:2px 11px;font-size:12px}
+.chip.warn{border-color:var(--p1);color:var(--p1);font-weight:700}
+
+.stats{display:grid;gap:8px}
+.stat{display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:center;
+  border-bottom:1px dashed var(--line);padding-bottom:8px}
+.stat .nm{font-weight:700;font-size:13px;color:var(--ink-soft)}
+.stat .val{font-size:16px;font-weight:700}
+
+.shop{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:720px){.shop{grid-template-columns:1fr}}
+.skill{text-align:left;background:var(--paper);border:1.5px solid var(--line);border-radius:5px;padding:11px 12px;
+  display:flex;flex-direction:column;gap:5px}
+.skill.on{border-color:var(--ok);border-width:2.5px;background:color-mix(in srgb,var(--ok) 9%,var(--paper))}
+.skill:disabled{opacity:.4;cursor:not-allowed}
+.skill .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.skill .nm{font-weight:700}
+.skill .cost{font-size:13px;font-weight:700;color:var(--gold)}
+.skill .d{font-size:12px;color:var(--ink-soft);line-height:1.45}
+.tag{font-size:10px;font-weight:700;border:1px solid var(--line);border-radius:3px;padding:0 5px;align-self:flex-start}
+.tag.act{border-color:var(--gold);color:var(--gold)}
+.tag.timed{border-color:var(--p2);color:var(--p2)}
+.tag.econ{border-color:var(--ok);color:var(--ok)}
+
+.field2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.field2{grid-template-columns:1fr}}
+.fighter{border:1.5px solid var(--line);border-radius:6px;padding:12px;background:var(--paper2)}
+.fighter.me{border-color:var(--ink);border-width:2.5px}
+.fighter .who{font-weight:900;font-size:14px;margin-bottom:6px}
+.p1c{color:var(--p1)} .p2c{color:var(--p2)}
+.hpbar{height:16px;border:1.5px solid var(--ink);border-radius:3px;overflow:hidden;background:var(--paper)}
+.hpbar div{height:100%;transition:width .35s ease}
+.hpnum{font-size:13px;margin-top:4px;font-weight:700}
+.miniStats{display:flex;gap:12px;font-size:12px;color:var(--ink-soft);margin-top:6px;flex-wrap:wrap}
+.badge{font-size:10px;border:1px solid var(--line);border-radius:3px;padding:0 5px;color:var(--ink-soft)}
+.skillInfo{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+.skillInfoRow{display:flex;flex-direction:column;gap:2px}
+.skillInfoD{font-size:11px;color:var(--ink-soft);line-height:1.4}
+
+.log{max-height:280px;overflow-y:auto;border:1.5px solid var(--line);border-radius:5px;
+  background:var(--paper);padding:10px 12px;font-size:13px}
+.log p{margin:0 0 4px}
+.log .t{font-weight:900;color:var(--ink-soft);font-size:11px;margin-top:9px;border-top:1px dashed var(--line);padding-top:6px}
+.log .d1{color:var(--p1)} .log .d2{color:var(--p2)}
+
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.acts .btn{display:flex;flex-direction:column;align-items:flex-start;gap:3px;max-width:220px;text-align:left}
+.actName{font-weight:700}
+.actD{font-size:11px;font-weight:400;opacity:.8;line-height:1.4;white-space:normal}
+.tradeBox{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.result{text-align:center;padding:20px 0}
+.result .big{font-size:34px;font-weight:900}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(18px + env(safe-area-inset-bottom,0px));
+  background:var(--ink);color:var(--paper2);padding:10px 18px;border-radius:5px;font-size:13px;z-index:9;
+  box-shadow:0 4px 14px var(--shadow)}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+
+.helpOverlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:20;
+  display:flex;align-items:flex-start;justify-content:center;padding:24px 14px;
+  padding-top:calc(24px + env(safe-area-inset-top,0px));overflow-y:auto}
+.helpOverlay.hidden{display:none}
+.helpModal{background:var(--paper2);border:1.5px solid var(--line);border-radius:8px;
+  max-width:780px;width:100%;padding:18px;box-shadow:0 8px 28px var(--shadow)}
+.helpHead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  border-bottom:2px solid var(--ink);padding-bottom:10px;margin-bottom:14px}
+.helpHead h2{font-size:17px}
+.helpBody h3{font-size:13px;color:var(--ink-soft);margin:0 0 8px;letter-spacing:.03em}
+.helpBody .rules{margin:0 0 18px;padding-left:18px;font-size:13px;line-height:1.8}
+.helpBody .rules li{margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>バトル調整卓</h1>
+    <span class="code" id="codeLabel"></span>
+    <span class="spacer"></span>
+    <div class="skipBox" id="skipBox"></div>
+    <button class="btn ghost sm" id="helpBtn" title="遊び方・スキル一覧">？</button>
+    <div class="track" id="track"></div>
+  </div>
+  <div id="stage"><div class="panel"><p class="muted">読み込み中…</p></div></div>
+</div>
+
+<div id="helpOverlay" class="helpOverlay hidden">
+  <div class="helpModal">
+    <div class="helpHead">
+      <h2>遊び方・スキル一覧</h2>
+      <button class="btn ghost sm" id="helpClose">閉じる</button>
+    </div>
+    <div class="helpBody" id="helpBody"></div>
+  </div>
+</div>
+
+<!--
+  ここから下の2行がFirebaseのSDK読み込みです。バージョンを変える場合は
+  2つとも同じ番号に揃えてください。
+-->
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-database-compat.js"></script>
+
+<script>
+/* ============================================================
+   ここにご自身のFirebaseプロジェクトの設定値を貼り付けてください。
+   Firebaseコンソール > プロジェクトの設定 > 全般 > マイアプリ(Webアプリ)
+   の「SDK の設定と構成」に出てくる firebaseConfig の中身をそのまま
+   コピーしてくればOKです。
+   Realtime Databaseを使うには databaseURL が必須です。見当たらない場合は
+   Realtime Database の「データ」タブ上部に表示されているURL
+  (https://<プロジェクトID>-default-rtdb.<リージョン>.firebasedatabase.app)
+   を databaseURL に貼り付けてください。手順は同梱の README を参照してください。
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyAp6HiPr6CXdsZz4niTOvKKLdluZlnS-hU",
+  authDomain: "our-money-wars.firebaseapp.com",
+  databaseURL: "https://our-money-wars-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "our-money-wars",
+  storageBucket: "our-money-wars.firebasestorage.app",
+  messagingSenderId: "56083801995",
+  appId: "1:56083801995:web:70db18a7eb6b2af139718e"
+};
+</script>
+
+<script>
+/* ============ スキル定義 ============
+   cat: 'buff'   常時発動(所持しているだけで効く)
+        'active' 戦闘中に自分でターンを選んで使う(1戦闘1回)
+        'timed'  指定ターン終了時に自動発動(1戦闘1回)
+        'econ'   戦闘とは無関係にptだけ動く(1回)          */
+const SKILLS = {
+  sleep:    {name:"睡眠",     cost:500,  cat:'active', d:"使用すると次のターンは行動できなくなる代わりに、最大HPが5%増える"},
+  dot:      {name:"持続攻撃", cost:1500, cat:'active', d:"相手に500ダメージを、3ターンの間毎ターン与え続ける"},
+  pierce:   {name:"貫通攻撃", cost:1450, cat:'active', d:"攻撃力の5倍の固定ダメージを与える。相手のスキルの効果を一切受けない"},
+  insurance:{name:"傷害保険", cost:350,  cat:'buff',   d:"所持しているラウンドの間、ダメージを受けるたびに(受けたダメージ×0.5)ptを獲得する(端数切り捨て)"},
+  econSkill:{name:"ス〇ーピース保険", cost:350, cat:'econ', d:"購入した次のラウンド開始時に600ptを獲得する"},
+  drGuard:  {name:"被ダメ軽減", cost:300, cat:'active', d:"使用したターンから3ターンの間、受けるダメージを10%軽減する"},
+  reflect:  {name:"反射",     cost:400,  cat:'active', d:"使用後、次に受けるダメージの30%を相手に返す(それで相手が死ぬことはない)"},
+  comboAtk: {name:"攻撃スキル", cost:400, cat:'active', d:"次の通常攻撃が、本来のダメージの30%分を与える5連撃になる"},
+  autoheal5:{name:"回復スキル", cost:300, cat:'timed', turn:5, d:"5ターン後に自動で発動。最大HPの20%を即時回復する"},
+  regenB:   {name:"回復スキル", cost:400, cat:'active', d:"使用した次のターン開始時、直前のターンに受けたダメージの40%(端数切り捨て)を回復する。使用者が戦闘不能なら無効"},
+  trade:    {name:"交換",     cost:650,  cat:'active', d:"相手のステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を1ターンだけ入れ替える"},
+  evade:    {name:"回避",     cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
+};
+const SKILL_IDS = Object.keys(SKILLS);
+const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
+
+const DEFAULT_CFG = {
+  rounds:7, startPt:1000, winPt:800, losePt:1000, ptLife:2,
+  baseHp:5000, baseAtk:300, baseDef:100, baseSpd:100,
+  formula:"ratio", minDmg:1, maxTurns:30, dblThr:2, rerollBase:100,
+  resetEachRound:true
+};
+
+/* ============ ユーティリティ ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return h>>>0}
+function rng(seed){let a=seed>>>0;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function shopFor(code,round,player,reroll){
+  const r=rng(hashStr(`${code}|${round}|${player}|${reroll}`));
+  const pool=SKILL_IDS.slice();
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(r()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]]}
+  return pool.slice(0,3);
+}
+function tagFor(k, cfg){
+  const s=SKILLS[k];
+  if(s.cat==='buff') return '常時';
+  if(s.cat==='active') return '使用';
+  if(s.cat==='timed') return `${paramOf(k,'turn',cfg)}T後 自動`;
+  return '次R開始時';
+}
+function tagClsFor(s){
+  if(s.cat==='active') return 'act';
+  if(s.cat==='timed') return 'timed';
+  if(s.cat==='econ') return 'econ';
+  return '';
+}
+function costOf(k, cfg){
+  cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
+  if(cfg && cfg.skillCosts && cfg.skillCosts[k]!=null) return cfg.skillCosts[k];
+  return SKILLS[k].cost;
+}
+const PARAM_DEFS = {
+  sleep:    [{key:'hpPct',  label:'最大HP増加(%)',        default:5}],
+  dot:      [{key:'dmg',    label:'1ターンあたりダメージ', default:500},{key:'turns',label:'継続ターン数',default:3}],
+  pierce:   [{key:'mult',   label:'攻撃力の倍率',          default:5}],
+  insurance:[{key:'rate',   label:'被ダメに対する獲得率(%)',default:50}],
+  econSkill:[{key:'bonus',  label:'次R開始時ボーナスpt',    default:600}],
+  drGuard:  [{key:'pct',    label:'軽減率(%)',             default:10},{key:'turns',label:'継続ターン数',default:3}],
+  reflect:  [{key:'pct',    label:'反射率(%)',             default:30}],
+  comboAtk: [{key:'hits',   label:'連撃回数',              default:5},{key:'pct',label:'1発あたりの威力(%)',default:30}],
+  autoheal5:[{key:'pct',    label:'回復量(%)',             default:20},{key:'turn',label:'発動ターン',default:5}],
+  regenB:   [{key:'pct',    label:'回復率(%)',             default:40}],
+  evade:    [{key:'spdThreshold',label:'必要速度',         default:200}],
+};
+function paramOf(skillId, key, cfg){
+  cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
+  const v = cfg && cfg.skillParams && cfg.skillParams[skillId] ? cfg.skillParams[skillId][key] : null;
+  if(v!=null) return v;
+  const def = PARAM_DEFS[skillId] && PARAM_DEFS[skillId].find(p=>p.key===key);
+  return def ? def.default : 0;
+}
+function descFor(k, cfg){
+  cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
+  const p = key => paramOf(k,key,cfg);
+  switch(k){
+    case 'sleep': return `使用すると次のターンは行動できなくなる代わりに、最大HPが${p('hpPct')}%増える`;
+    case 'dot': return `相手に${p('dmg')}ダメージを、${p('turns')}ターンの間毎ターン与え続ける`;
+    case 'pierce': return `攻撃力の${p('mult')}倍の固定ダメージを与える。相手のスキルの効果を一切受けない`;
+    case 'insurance': return `所持しているラウンドの間、ダメージを受けるたびに受けたダメージの${p('rate')}%をptとして獲得する(端数切り捨て)`;
+    case 'econSkill': return `購入した次のラウンド開始時に${p('bonus')}ptを獲得する`;
+    case 'drGuard': return `使用したターンから${p('turns')}ターンの間、受けるダメージを${p('pct')}%軽減する`;
+    case 'reflect': return `使用後、次に受けるダメージの${p('pct')}%を相手に返す(それで相手が死ぬことはない)`;
+    case 'comboAtk': return `次の通常攻撃が、本来のダメージの${p('pct')}%分を与える${p('hits')}連撃になる`;
+    case 'autoheal5': return `${p('turn')}ターン後に自動で発動。最大HPの${p('pct')}%を即時回復する`;
+    case 'regenB': return `使用した次のターン開始時、直前のターンに受けたダメージの${p('pct')}%(端数切り捨て)を回復する。使用者が戦闘不能なら無効`;
+    case 'trade': return `相手のステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を1ターンだけ入れ替える`;
+    case 'evade': return `速度が${p('spdThreshold')}以上のとき、相手の通常攻撃を1度だけ無効化する`;
+  }
+  return SKILLS[k].d;
+}
+function toast(msg){
+  const el=document.createElement('div');el.className='toast';el.textContent=msg;
+  document.body.appendChild(el);setTimeout(()=>el.remove(),3200);
+}
+
+/* ============ 所持pt(先入れ先出し + 有効期限) ============ */
+function walletTotal(w){return (w||[]).reduce((s,e)=>s+e.amt,0)}
+function walletSpend(w,amt){
+  const out=(w||[]).map(e=>({...e}));
+  let left=amt;
+  for(const e of out){ if(left<=0)break; const t=Math.min(e.amt,left); e.amt-=t; left-=t; }
+  return out.filter(e=>e.amt>0);
+}
+function walletExpire(w,round,life){ return (w||[]).filter(e=>round - e.round < life); }
+
+/* ============ 戦闘エンジン(ホストのみ実行) ============ */
+function mkFighter(load,cfg,nm){
+  const sk=load.skills||[];
+  return {
+    nm, maxHp:cfg.baseHp, hp:cfg.baseHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
+    skills:sk, used:{}, fired:{},
+    dmgTakenThisTurn:0, dmgTakenLastTurn:0,
+    sleepSkip:false, pendingRegen:null, reflectArmed:false, nextAttackMulti:null,
+    tempDRTurns:0, dots:[], dodgeUsed:false,
+    hasEvasion: sk.includes('evade'),
+    insurance: sk.includes('insurance'), insuranceGain:0,
+    tradeApplied:null,
+    /* 部屋設定から解決した、このスキルセットにおける効果値 */
+    sleepHpPct:   paramOf('sleep','hpPct',cfg)/100,
+    dotDmg:       paramOf('dot','dmg',cfg),
+    dotTurns:     paramOf('dot','turns',cfg),
+    pierceMult:   paramOf('pierce','mult',cfg),
+    insuranceRate:paramOf('insurance','rate',cfg)/100,
+    tempDRPct:    paramOf('drGuard','pct',cfg)/100,
+    drGuardTurns: paramOf('drGuard','turns',cfg),
+    reflectPct:   paramOf('reflect','pct',cfg)/100,
+    comboHits:    paramOf('comboAtk','hits',cfg),
+    comboPct:     paramOf('comboAtk','pct',cfg)/100,
+    autohealPct:  paramOf('autoheal5','pct',cfg)/100,
+    autohealTurn: paramOf('autoheal5','turn',cfg),
+    regenPct:     paramOf('regenB','pct',cfg)/100,
+    evadeThreshold:paramOf('evade','spdThreshold',cfg),
+  };
+}
+function rawDmg(atk,def,cfg){
+  if(cfg.formula==='sub') return Math.max(cfg.minDmg, atk-def);
+  return Math.max(cfg.minDmg, atk*atk/(atk+def));
+}
+function dealDamage(target, dmg, attacker, opts){
+  opts = opts||{};
+  let final = Math.max(0, dmg);
+  if(!opts.bypassDefenderSkills && target.tempDRTurns>0) final = Math.round(final*(1-target.tempDRPct));
+  final = Math.max(0, Math.round(final));
+  target.hp = Math.max(0, target.hp-final);
+  target.dmgTakenThisTurn += final;
+  let insGain=0, reflectAmt=0;
+  if(!opts.bypassDefenderSkills && target.insurance && final>0) insGain = Math.floor(final*target.insuranceRate);
+  if(!opts.bypassDefenderSkills && target.reflectArmed && final>0 && attacker){
+    const rf=Math.floor(final*target.reflectPct);
+    const cap=Math.max(0, attacker.hp-1);
+    reflectAmt=Math.min(rf,cap);
+    if(reflectAmt>0) attacker.hp-=reflectAmt;
+    target.reflectArmed=false;
+  }
+  target.insuranceGain += insGain;
+  return {final, insGain, reflectAmt};
+}
+function strike(A,D,cfg,mult,log,tagA,tagD,R,opts){
+  opts = Object.assign({isNormal:false,bypassDefenderSkills:false,fixedDmg:null},opts||{});
+  if(opts.isNormal && D.hasEvasion && !D.dodgeUsed && D.spd>=D.evadeThreshold){
+    D.dodgeUsed=true;
+    log.push({c:tagD,t:`${D.nm}が${A.nm}の攻撃を回避!`});
+    return 0;
+  }
+  let raw = opts.fixedDmg!=null ? opts.fixedDmg : rawDmg(A.atk,D.def,cfg)*mult;
+  raw = Math.max(1,Math.round(raw));
+  const r = dealDamage(D, raw, A, {bypassDefenderSkills:opts.bypassDefenderSkills});
+  log.push({c:tagA,t:`${A.nm}の攻撃 → ${r.final}ダメージ`});
+  if(r.insGain>0) log.push({c:tagD,t:`傷害保険で${r.insGain}pt獲得`});
+  if(r.reflectAmt>0) log.push({c:tagA,t:`反射で${r.reflectAmt}ダメージ`});
+  return r.final;
+}
+function doAction(A,D,act,cfg,log,tagA,tagD,R){
+  if(A.hp<=0) return;
+  if(A.sleepSkip){ A.sleepSkip=false; log.push({c:tagA,t:`${A.nm}は眠っていて行動できない`}); return; }
+  const actId = (act||'').includes(':') ? act.split(':')[0] : act;
+  if(actId==='attack' || !SKILLS[actId]){
+    if(A.nextAttackMulti){
+      const {hits,pct}=A.nextAttackMulti; A.nextAttackMulti=null;
+      log.push({c:tagA,t:`攻撃スキルの効果で${hits}連撃!`});
+      for(let i=0;i<hits;i++){ if(D.hp<=0)break; strike(A,D,cfg,pct,log,tagA,tagD,R,{isNormal:true}); }
+    } else {
+      strike(A,D,cfg,1,log,tagA,tagD,R,{isNormal:true});
+    }
+    return;
+  }
+  if(A.used[actId] || SKILLS[actId].cat!=='active' || !A.skills.includes(actId)){
+    log.push({c:tagA,t:`${A.nm}は行動できなかった`}); return;
+  }
+  A.used[actId]=true;
+  const s=SKILLS[actId];
+  if(actId==='sleep'){
+    A.sleepSkip=true;
+    const inc=Math.round(A.maxHp*A.sleepHpPct);
+    A.maxHp+=inc; A.hp=Math.min(A.maxHp,A.hp+inc);
+    log.push({c:tagA,t:`${s.name} → 最大HPが${inc}増加。次のターンは行動不能になる`});
+  }
+  else if(actId==='dot'){
+    D.dots.push({dmg:A.dotDmg,turnsLeft:A.dotTurns,src:A});
+    log.push({c:tagA,t:`${s.name} → ${A.dotTurns}ターンの間、毎ターン${A.dotDmg}ダメージ`});
+  }
+  else if(actId==='pierce'){
+    log.push({c:tagA,t:`${s.name}!`});
+    strike(A,D,cfg,1,log,tagA,tagD,R,{fixedDmg:Math.round(A.atk*A.pierceMult), bypassDefenderSkills:true});
+  }
+  else if(actId==='drGuard'){
+    A.tempDRTurns=A.drGuardTurns;
+    log.push({c:tagA,t:`${s.name} → ${A.drGuardTurns}ターンの間、被ダメージ-${Math.round(A.tempDRPct*100)}%`});
+  }
+  else if(actId==='reflect'){
+    A.reflectArmed=true;
+    log.push({c:tagA,t:`${s.name} → 次に受けるダメージの${Math.round(A.reflectPct*100)}%を反射`});
+  }
+  else if(actId==='comboAtk'){
+    A.nextAttackMulti={hits:A.comboHits,pct:A.comboPct};
+    log.push({c:tagA,t:`${s.name} → 次の通常攻撃が${A.comboHits}連撃になる`});
+  }
+  else if(actId==='regenB'){
+    A.pendingRegen = A.__turn+1;
+    log.push({c:tagA,t:`${s.name} → 次のターン開始時に回復する`});
+  }
+  else if(actId==='trade'){
+    const parts=(act||'').split(':'); const k1=parts[1], k2=parts[2];
+    if(STAT_LABEL[k1] && STAT_LABEL[k2] && k1!==k2){
+      const v1=D[k1], v2=D[k2];
+      D[k1]=v2; D[k2]=v1;
+      D.tradeApplied={turn:A.__turn, keys:[k1,k2], values:[v1,v2]};
+      log.push({c:tagA,t:`${s.name} → 相手の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた`});
+    } else {
+      log.push({c:tagA,t:`${s.name}は不正な指定のため発動しなかった`});
+    }
+  }
+}
+function fireTimed(P,O,cfg,log,tagP,tagO,R){
+  for(const k of P.skills){
+    const s=SKILLS[k];
+    if(!s||s.cat!=='timed'||P.fired[k]) continue;
+    if(P.__turn!==P.autohealTurn) continue;
+    P.fired[k]=true;
+    if(k==='autoheal5'){
+      const h=Math.round(P.maxHp*P.autohealPct);
+      P.hp=Math.min(P.maxHp,P.hp+h);
+      log.push({c:tagP,t:`${s.name}が発動 → ${h}回復`});
+    }
+  }
+}
+function resolveTurn(B,a1,a2,cfg,seed){
+  const R=rng(seed);
+  const p1=B.p1,p2=B.p2;
+  p1.dmgTakenLastTurn=p1.dmgTakenThisTurn; p1.dmgTakenThisTurn=0;
+  p2.dmgTakenLastTurn=p2.dmgTakenThisTurn; p2.dmgTakenThisTurn=0;
+  p1.__turn=B.turn; p2.__turn=B.turn;
+  const log=[{c:'t',t:`ターン ${B.turn}`}];
+
+  for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
+    if(P.tradeApplied && P.tradeApplied.turn===B.turn-1){
+      const {keys,values}=P.tradeApplied;
+      P[keys[0]]=values[0]; P[keys[1]]=values[1];
+      log.push({c:tg,t:`交換の効果が切れ、ステータスが元に戻った`});
+      P.tradeApplied=null;
+    }
+  }
+
+  for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
+    if(P.pendingRegen===B.turn){
+      P.pendingRegen=null;
+      if(P.hp>0){
+        const heal=Math.floor(P.dmgTakenLastTurn*P.regenPct);
+        if(heal>0){ P.hp=Math.min(P.maxHp,P.hp+heal); log.push({c:tg,t:`回復スキルの効果 → ${heal}回復`}); }
+        else log.push({c:tg,t:`回復スキルの効果 → 回復量はなかった`});
+      } else {
+        log.push({c:tg,t:`回復スキルの効果は戦闘不能のため発動しなかった`});
+      }
+    }
+  }
+
+  fireTimed(p1,p2,cfg,log,'d1','d2',R);
+  fireTimed(p2,p1,cfg,log,'d2','d1',R);
+
+  let order;
+  if(p1.spd>p2.spd) order=[[p1,p2,a1,'d1','d2'],[p2,p1,a2,'d2','d1']];
+  else if(p2.spd>p1.spd) order=[[p2,p1,a2,'d2','d1'],[p1,p2,a1,'d1','d2']];
+  else order = (B.roundFirst||1)===1 ? [[p1,p2,a1,'d1','d2'],[p2,p1,a2,'d2','d1']] : [[p2,p1,a2,'d2','d1'],[p1,p2,a1,'d1','d2']];
+  for(const [A,D,act,ta,td] of order){ if(A.hp>0 && D.hp>0) doAction(A,D,act,cfg,log,ta,td,R); }
+
+  if(cfg.dblThr>0 && p1.hp>0 && p2.hp>0){
+    if(p1.spd >= p2.spd*cfg.dblThr){log.push({c:'d1',t:`速度差で追撃`});doAction(p1,p2,'attack',cfg,log,'d1','d2',R)}
+    else if(p2.spd >= p1.spd*cfg.dblThr){log.push({c:'d2',t:`速度差で追撃`});doAction(p2,p1,'attack',cfg,log,'d2','d1',R)}
+  }
+
+  for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
+    if(!P.dots.length) continue;
+    let total=0, src=null;
+    P.dots.forEach(d=>{ total+=d.dmg; src=d.src; });
+    if(total>0 && P.hp>0){
+      const srcTag = src===p1?'d1':(src===p2?'d2':tg);
+      const r=dealDamage(P,total,src,{});
+      log.push({c:tg,t:`持続攻撃のダメージ → ${r.final}`});
+      if(r.insGain>0) log.push({c:tg,t:`傷害保険で${r.insGain}pt獲得`});
+      if(r.reflectAmt>0) log.push({c:srcTag,t:`反射で${r.reflectAmt}ダメージ`});
+    }
+    P.dots = P.dots.filter(d=>{ d.turnsLeft--; return d.turnsLeft>0; });
+  }
+
+  for(const P of [p1,p2]){ if(P.tempDRTurns>0) P.tempDRTurns--; }
+
+  return log;
+}
+
+/* ============ 通信・状態 ============ */
+let db=null, S=null, code=null, me=null, role=0, unsubs=[], I1=null, I2=null, busy=false;
+let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[]};
+let lobbyDrawn=false;
+
+function clientId(){
+  let id=sessionStorage.getItem('bsim_cid');
+  if(!id){id='c'+Math.random().toString(36).slice(2,10);sessionStorage.setItem('bsim_cid',id)}
+  return id;
+}
+function myName(){ return localStorage.getItem('bsim_name') || ''; }
+function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[]}; }
+
+async function setState(patch){
+  S = {...S, ...patch};
+  await db.doc('matches/'+code).set(S);
+}
+function myIntentRef(){ return db.doc(`intents/${code}_${role}`); }
+
+function subscribe(){
+  unsubs.forEach(u=>{try{u()}catch(e){}}); unsubs=[];
+  unsubs.push(db.doc('matches/'+code).onSnapshot(s=>{
+    if(!s.exists) return;
+    S=s.data(); render(); if(role===1) hostTick();
+  }, e=>toast('同期エラー: '+e.code)));
+  if(role===1){
+    for(const n of [1,2]){
+      unsubs.push(db.doc(`intents/${code}_${n}`).onSnapshot(s=>{
+        const d=s.exists?s.data():null;
+        if(n===1) I1=d; else I2=d;
+        render(); hostTick();
+      }, e=>toast('同期エラー: '+e.code)));
+    }
+  }
+}
+
+/* ============ ホスト進行 ============ */
+async function endRound(B, winner){
+  const cfg=S.cfg;
+  B.over=true;B.winner=winner;
+  B.log.push({c:'t',t: winner===0?'引き分け':`${S.names[winner]} の勝利`});
+  const wins={...S.wins};
+  if(winner) wins[winner]=(wins[winner]||0)+1;
+  const hist=[...(S.history||[]),winner];
+  const w={1:[...S.wallets[1]],2:[...S.wallets[2]]};
+  const nextR=S.round+1;
+  for(const p of [1,2]){
+    const amt = winner===0 ? Math.round((cfg.winPt+cfg.losePt)/2) : (winner===p?cfg.winPt:cfg.losePt);
+    w[p]=[...w[p],{round:nextR,amt}];
+  }
+  if(B.p1.insuranceGain>0){ w[1]=[...w[1],{round:nextR,amt:B.p1.insuranceGain}]; B.log.push({c:'d1',t:`${S.names[1]}: 傷害保険で合計${B.p1.insuranceGain}pt獲得`}); }
+  if(B.p2.insuranceGain>0){ w[2]=[...w[2],{round:nextR,amt:B.p2.insuranceGain}]; B.log.push({c:'d2',t:`${S.names[2]}: 傷害保険で合計${B.p2.insuranceGain}pt獲得`}); }
+  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w});
+}
+
+function noActiveLeft(f){ return (f.skills||[]).filter(k=>SKILLS[k].cat==='active' && !f.used[k]).length===0; }
+
+async function fastForwardBattle(){
+  const cfg=S.cfg;
+  let B=JSON.parse(JSON.stringify(S.battle));
+  let winner=0, over=false, guard=0;
+  while(!over && guard<500){
+    guard++;
+    const seed=hashStr(`${code}|${S.round}|ff|${B.turn}|${guard}`);
+    const newLog=resolveTurn(B,'attack','attack',cfg,seed);
+    B.log=[...B.log,...newLog].slice(-220);
+    B.turn++;
+    if(B.p1.hp<=0||B.p2.hp<=0){
+      over=true;
+      if(B.p1.hp<=0&&B.p2.hp<=0) winner=0; else winner=B.p1.hp>0?1:2;
+    } else if(B.turn>cfg.maxTurns){
+      over=true;
+      const r1=B.p1.hp/B.p1.maxHp, r2=B.p2.hp/B.p2.maxHp;
+      winner = r1===r2?0:(r1>r2?1:2);
+      B.log.push({c:'t',t:`ターン上限 → 残HP割合で判定`});
+    }
+  }
+  B.log.push({c:'t',t:'両者の合意によりスキップして自動決着'});
+  await endRound(B,winner);
+}
+
+async function hostTick(){
+  if(role!==1 || !S || busy) return;
+  try{
+    busy=true;
+    if(S.phase==='lobby' && !S.guest && I2 && I2.clientId){
+      await setState({guest:I2.clientId, names:{...S.names, 2:I2.name||'プレイヤー2'}});
+      render();
+    }
+    else if(S.phase==='shop'){
+      const a=I1&&I1.shop&&I1.shop.round===S.round?I1.shop:null;
+      const b=I2&&I2.shop&&I2.shop.round===S.round?I2.shop:null;
+      if(a&&b) await startBattle(a,b);
+    }
+    else if(S.phase==='battle'){
+      const v1=!!(I1&&I1.skipVote&&I1.skipVote.round===S.round&&I1.skipVote.agree);
+      const v2=!!(I2&&I2.skipVote&&I2.skipVote.round===S.round&&I2.skipVote.agree);
+      const curV=S.battle.skipVotes||{1:false,2:false};
+      if(curV[1]!==v1 || curV[2]!==v2){
+        await setState({battle:{...S.battle, skipVotes:{1:v1,2:v2}}});
+      }
+      if(v1 && v2){
+        await fastForwardBattle();
+      } else {
+        const t=S.battle.turn;
+        const a=I1&&I1.act&&I1.act.round===S.round&&I1.act.turn===t?I1.act.action:null;
+        const b=I2&&I2.act&&I2.act.round===S.round&&I2.act.turn===t?I2.act.action:null;
+        if(a&&b) await stepBattle(a,b);
+      }
+    }
+  }catch(e){ console.error(e); toast('進行エラー: '+(e.code||e.message||e)); }
+  finally{ busy=false; }
+}
+
+function applyShop(intent, wallet, base, cfg){
+  const skills=(intent.skills||[]).filter(s=>SKILLS[s] && !(base.skills||[]).includes(s));
+  const rerollCost=(()=>{let c=0;for(let i=0;i<(intent.rerolls||0);i++)c+=cfg.rerollBase*(i+1);return c})();
+  const spend=skills.reduce((s,k)=>s+costOf(k,cfg),0) + rerollCost;
+  const have=walletTotal(wallet);
+  if(spend>have) return {wallet, load:base, ok:false, newlyBought:[]};
+  const load={ skills: Array.from(new Set([...(base.skills||[]), ...skills])) };
+  return {wallet: walletSpend(wallet,spend), load, ok:true, newlyBought:skills};
+}
+
+async function startBattle(a,b){
+  const cfg=S.cfg;
+  const r1=applyShop(a,S.wallets[1],S.loadout[1],cfg);
+  const r2=applyShop(b,S.wallets[2],S.loadout[2],cfg);
+  const f1=mkFighter(r1.load,cfg,S.names[1]), f2=mkFighter(r2.load,cfg,S.names[2]);
+  const log=[];
+  if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のため購入は無効`});
+  if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のため購入は無効`});
+  const nextR=S.round+1;
+  let w1=r1.wallet, w2=r2.wallet;
+  const econBonus = paramOf('econSkill','bonus',cfg);
+  if(r1.ok && r1.newlyBought.includes('econSkill')){ w1=[...w1,{round:nextR,amt:econBonus}]; log.push({c:'t',t:`${S.names[1]}: ${SKILLS.econSkill.name}で次ラウンド開始時+${econBonus}pt確定`}); }
+  if(r2.ok && r2.newlyBought.includes('econSkill')){ w2=[...w2,{round:nextR,amt:econBonus}]; log.push({c:'t',t:`${S.names[2]}: ${SKILLS.econSkill.name}で次ラウンド開始時+${econBonus}pt確定`}); }
+  const roundFirst = (S.round % 2 === 1) ? 1 : 2;
+  log.push({c:'t',t:`ラウンド ${S.round} 開始 ・ 同速時の先攻: ${S.names[roundFirst]}`});
+  await setState({
+    phase:'battle',
+    wallets:{1:w1,2:w2},
+    loadout:{1:r1.load,2:r2.load},
+    battle:{turn:1,p1:f1,p2:f2,log,over:false,winner:0,roundFirst}
+  });
+}
+
+async function stepBattle(a1,a2){
+  const cfg=S.cfg, B=JSON.parse(JSON.stringify(S.battle));
+  const seed=hashStr(`${code}|${S.round}|${B.turn}|${a1}|${a2}`);
+  const newLog=resolveTurn(B,a1,a2,cfg,seed);
+  B.log=[...B.log,...newLog].slice(-220);
+  B.turn++;
+  let winner=0, over=false;
+  if(B.p1.hp<=0||B.p2.hp<=0){
+    over=true;
+    if(B.p1.hp<=0&&B.p2.hp<=0) winner=0;
+    else winner=B.p1.hp>0?1:2;
+  } else if(B.turn>cfg.maxTurns){
+    over=true;
+    const r1=B.p1.hp/B.p1.maxHp, r2=B.p2.hp/B.p2.maxHp;
+    winner = r1===r2?0:(r1>r2?1:2);
+    B.log.push({c:'t',t:`ターン上限 → 残HP割合で判定`});
+  }
+  if(!over){ await setState({battle:B}); return; }
+  await endRound(B, winner);
+}
+
+async function nextRound(){
+  const cfg=S.cfg;
+  if(S.round>=cfg.rounds){ await setState({phase:'matchEnd'}); return; }
+  const nextR=S.round+1;
+  const w={1:walletExpire(S.wallets[1],nextR,cfg.ptLife),2:walletExpire(S.wallets[2],nextR,cfg.ptLife)};
+  const blank={skills:[]};
+  const load=cfg.resetEachRound?{1:{...blank},2:{...blank}}:S.loadout;
+  resetLocal();
+  await myIntentRef().update({clientId:me,name:S.names[role]});
+  await setState({phase:'shop',round:nextR,wallets:w,loadout:load,battle:null});
+}
+
+/* ============ ルーム作成/参加 ============ */
+async function createRoom(name,cfg){
+  code=Math.random().toString(36).slice(2,7).toUpperCase();
+  role=1;
+  localStorage.setItem('bsim_name',name);
+  S={
+    host:me,guest:null,names:{1:name,2:'プレイヤー2'},cfg,
+    phase:'lobby',round:1,wins:{1:0,2:0},history:[],
+    wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
+    loadout:{1:{skills:[]},2:{skills:[]}},
+    battle:null
+  };
+  await db.doc('matches/'+code).set(S);
+  await db.doc(`intents/${code}_1`).set({clientId:me,name});
+  await db.doc(`intents/${code}_2`).set({clientId:null});
+  subscribe(); render();
+}
+async function joinRoom(name,c){
+  const snap=await db.doc('matches/'+c.toUpperCase()).get();
+  if(!snap.exists){ toast('そのルームは見つかりません'); return; }
+  code=c.toUpperCase(); role=2; localStorage.setItem('bsim_name',name);
+  S=snap.data();
+  if(S.guest && S.guest!==me){ toast('このルームは満員です'); code=null;role=0;return; }
+  await db.doc(`intents/${code}_2`).set({clientId:me,name});
+  subscribe(); render();
+}
+
+/* ============ 画面 ============ */
+function spentTotal(){ return L.skills.reduce((s,k)=>s+costOf(k),0) + L.rerollSpent; }
+function availPt(){ return walletTotal(S.wallets[role]) - spentTotal(); }
+
+function renderTrack(){
+  if(!S){$('#track').innerHTML='';return}
+  const h=S.history||[];let out='';
+  for(let i=1;i<=S.cfg.rounds;i++){
+    const r=h[i-1];
+    const cls = r===1?'w1':r===2?'w2':(r===0&&i<=h.length)?'dr':(i===S.round?'now':'');
+    out+=`<i class="${cls}">${i}</i>`;
+  }
+  $('#track').innerHTML=out;
+  $('#codeLabel').innerHTML = code?`ルーム <b class="num">${code}</b> ・ ${esc(S.names[role]||'')}(P${role})`:'';
+}
+
+function renderSkipUI(){
+  const box=$('#skipBox');
+  if(!box) return;
+  if(!S || S.phase!=='battle' || !S.battle || !(noActiveLeft(S.battle.p1) && noActiveLeft(S.battle.p2))){
+    box.innerHTML=''; return;
+  }
+  const votes=S.battle.skipVotes||{1:false,2:false};
+  box.innerHTML=`
+    <button class="btn ${votes[role]?'':'ghost'} sm" id="skipVoteBtn" title="双方が賛成すると残りを自動で決着させます">スキップ</button>
+    <span class="skipSq ${votes[1]?'on':''}"></span>
+    <span class="skipSq ${votes[2]?'on':''}"></span>
+  `;
+  const svb=box.querySelector('#skipVoteBtn');
+  if(svb) svb.onclick=async()=>{
+    const newVal=!votes[role];
+    await myIntentRef().update({clientId:me,name:S.names[role], skipVote:{round:S.round, agree:newVal}});
+  };
+}
+
+function render(){
+  renderTrack();
+  renderSkipUI();
+  const st=$('#stage');
+  if(!S){ return; }
+  if(S.phase==='lobby'){ renderLobby(st); return; }
+  lobbyDrawn=false;
+  if(S.phase==='shop') renderShop(st);
+  else if(S.phase==='battle') renderBattle(st);
+  else if(S.phase==='roundEnd') renderRoundEnd(st);
+  else if(S.phase==='matchEnd') renderMatchEnd(st);
+}
+
+function renderLobby(st){
+  if(!lobbyDrawn){
+    lobbyDrawn=true;
+    st.innerHTML=`<div class="panel">
+      <h2>ルームができました</h2>
+      <p class="muted">この合言葉を相手に伝えてください。同じページを開いて「参加する」に入力します。</p>
+      <div class="codebox num">${code}</div>
+      <p class="muted" id="waitLine"></p>
+      ${role===1?`<div class="row" style="margin-top:12px"><button class="btn" id="startBtn">試合を始める</button></div>`:''}
+    </div>`;
+    if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await setState({phase:'shop'}); };
+  }
+  /* 参加状況の反映は毎回ここで無条件に行う(初回描画・再描画どちらでも同じ経路を通す) */
+  const w=$('#waitLine'); if(w) w.textContent = S.guest?`${S.names[2]} が参加しました`:'相手の参加を待っています…';
+  const b=$('#startBtn'); if(b) b.disabled=!S.guest;
+}
+
+function skillCard(k,owned,on,afford){
+  const s=SKILLS[k], cost=costOf(k);
+  let btnLabel, btnDisabled;
+  if(owned){ btnLabel='所持済'; btnDisabled=true; }
+  else if(on){ btnLabel='取り消す'; btnDisabled=false; }
+  else { btnLabel=`${cost}ptで購入`; btnDisabled=!afford; }
+  return `<div class="skill ${on?'on':''}">
+    <div class="h"><span class="nm">${s.name}</span><span class="cost num">${owned?'所持済':cost+'pt'}</span></div>
+    <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
+    <span class="d">${descFor(k)}</span>
+    <button class="btn ${on?'ghost':'sm'}" style="margin-top:4px;align-self:stretch;justify-content:center;display:flex" data-buyskill="${k}" ${btnDisabled?'disabled':''}>${btnLabel}</button>
+  </div>`;
+}
+
+function renderShop(st){
+  const cfg=S.cfg, base=S.loadout[role];
+  const opts=shopFor(code,S.round,role,L.rerolls);
+  const nextReroll=cfg.rerollBase*(L.rerolls+1);
+  const wallet=S.wallets[role];
+  const oppReady = role===1 ? !!(I2&&I2.shop&&I2.shop.round===S.round) : false;
+  const ownedList=(base.skills||[]);
+  st.innerHTML=`
+  <div class="panel">
+    <h2>ラウンド ${S.round} ・ 編成 <small>勝敗 ${S.wins[1]} - ${S.wins[2]}</small></h2>
+    <div class="wallet">
+      <span class="big num">${availPt()}</span><span class="muted">pt 使用可能</span>
+      ${wallet.map(e=>`<span class="chip num${S.round-e.round===cfg.ptLife-1?' warn':''}">R${e.round}獲得 ${e.amt}pt${S.round-e.round===cfg.ptLife-1?' ・今R限り':''}</span>`).join('')}
+    </div>
+    <div class="stats" style="margin-top:10px">
+      <div class="stat"><div class="nm">基礎値</div><div class="val num">HP${cfg.baseHp}　攻${cfg.baseAtk}　防${cfg.baseDef}　速${cfg.baseSpd}</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>所持スキル <small>これまでに購入したスキルと効果</small></h2>
+    ${ownedList.length
+      ? `<div class="shop">${ownedList.map(k=>{
+          const s=SKILLS[k];
+          return `<div class="skill on" style="cursor:default">
+            <div class="h"><span class="nm">${s.name}</span></div>
+            <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
+            <span class="d">${descFor(k)}</span>
+          </div>`;
+        }).join('')}</div>`
+      : '<p class="muted">まだスキルを所持していません</p>'}
+  </div>
+
+  <div class="panel">
+    <h2>スキルショップ <small>3枠からランダム・カードごとに購入を確定します</small></h2>
+    <div class="shop">
+      ${opts.map(k=>{
+        const owned=ownedList.includes(k);
+        const on=L.skills.includes(k);
+        const afford = on || owned || availPt()>=costOf(k);
+        return skillCard(k,owned,on,afford);
+      }).join('')}
+    </div>
+    <div class="row" style="margin-top:11px">
+      <button class="btn ghost sm" id="rerollBtn" ${availPt()<nextReroll?'disabled':''}>並べ替える(${nextReroll}pt)</button>
+      <span class="muted">更新するたびに次の費用が上がります</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>今回選んだスキル <small>まだ確定前の分だけ表示。各カードのボタンで購入します</small></h2>
+    ${L.skills.length
+      ? `<div class="shop">${L.skills.map(k=>{
+          const s=SKILLS[k];
+          return `<div class="skill on">
+            <div class="h"><span class="nm">${s.name}</span><span class="cost num">${costOf(k)}pt</span></div>
+            <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
+            <span class="d">${descFor(k)}</span>
+          </div>`;
+        }).join('')}</div>
+        <p class="muted num" style="margin-top:8px">今回の購入合計 ${L.skills.reduce((s,k)=>s+costOf(k),0)}pt</p>`
+      : '<p class="muted">まだ何も購入していません</p>'}
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <button class="btn" id="readyBtn" ${L.ready?'disabled':''}>${L.ready?'相手を待っています…':'この編成で確定'}</button>
+      ${role===1?`<span class="muted">${oppReady?'相手は確定済み':'相手はまだ編成中'}</span>`:''}
+      ${L.ready?'':'<span class="muted">確定すると変更できません</span>'}
+    </div>
+  </div>`;
+
+  st.querySelectorAll('[data-buyskill]').forEach(b=>b.onclick=()=>{
+    if(L.ready)return;
+    const k=b.dataset.buyskill;
+    L.skills = L.skills.includes(k) ? L.skills.filter(x=>x!==k) : [...L.skills,k];
+    render();
+  });
+
+  const rb=$('#rerollBtn'); if(rb) rb.onclick=()=>{
+    if(L.ready)return;
+    L.rerollSpent+=nextReroll; L.rerolls++;
+    render();
+  };
+  $('#readyBtn').onclick=async()=>{
+    L.ready=true; render();
+    await myIntentRef().update({clientId:me,name:S.names[role],
+      shop:{round:S.round,skills:[...L.skills],rerolls:L.rerolls}});
+  };
+}
+
+function fighterBadges(f){
+  const badges=[];
+  if(f.tempDRTurns>0) badges.push({t:`被ダメ軽減 残り${f.tempDRTurns}T`, d:'受けるダメージ-10%'});
+  if(f.reflectArmed) badges.push({t:'反射 待機中', d:'次に受けるダメージの30%を反射する'});
+  if(f.nextAttackMulti) badges.push({t:'次の通常攻撃が5連撃', d:'攻撃スキルの効果'});
+  if(f.sleepSkip) badges.push({t:'次ターン行動不能', d:'睡眠の効果'});
+  if(f.pendingRegen) badges.push({t:'次ターン開始時に回復予定', d:'回復スキルの効果'});
+  if(f.dots && f.dots.length){
+    const left=Math.max(...f.dots.map(d=>d.turnsLeft));
+    const dmg=f.dots[0].dmg;
+    badges.push({t:`持続ダメージ 残り${left}T`, d:`毎ターン${dmg}ダメージ`});
+  }
+  (f.skills||[]).forEach(k=>{
+    const s=SKILLS[k];
+    if(s.cat==='timed') badges.push({t:f.fired[k]?`${s.name}(発動済)`:`${s.name}(${f.autohealTurn}T後)`,d:descFor(k)});
+    else if(s.cat==='active') badges.push({t:f.used[k]?`${s.name}(使用済)`:s.name,d:descFor(k)});
+    else badges.push({t:s.name,d:descFor(k)});
+  });
+  return badges;
+}
+function fighterCard(n){
+  const B=S.battle, f=n===1?B.p1:B.p2;
+  const mine = n===role;
+  const pct=Math.max(0,f.hp/f.maxHp*100);
+  const col=n===1?'var(--p1)':'var(--p2)';
+  return `<div class="fighter ${mine?'me':''}">
+    <div class="who ${n===1?'p1c':'p2c'}">${esc(f.nm)}${mine?'(あなた)':''}</div>
+    <div class="hpbar"><div style="width:${pct}%;background:${col}"></div></div>
+    <div class="hpnum num">${f.hp} / ${f.maxHp}</div>
+    ${mine
+      ? `<div class="miniStats num">攻 ${Math.round(f.atk)}　防 ${Math.round(f.def)}　速 ${Math.round(f.spd)}</div>
+         <div class="skillInfo">${fighterBadges(f).map(b=>`<div class="skillInfoRow"><span class="badge">${esc(b.t)}</span>${b.d?`<span class="skillInfoD">${esc(b.d)}</span>`:''}</div>`).join('')}</div>`
+      : `<div class="miniStats num muted">スキル・強化状況は非公開</div>`}
+  </div>`;
+}
+
+function renderBattle(st){
+  const B=S.battle, mine=role===1?B.p1:B.p2;
+  const waiting = L.act && L.act.turn===B.turn;
+  const acts=['attack',...(mine.skills||[]).filter(k=>SKILLS[k].cat==='active' && !mine.used[k])];
+  const hasTrade = acts.includes('trade');
+  st.innerHTML=`
+  <div class="panel">
+    <h2>ラウンド ${S.round} ・ ターン ${B.turn} <small>上限 ${S.cfg.maxTurns}</small></h2>
+    <div class="field2">${fighterCard(1)}${fighterCard(2)}</div>
+    <div class="acts">
+      ${acts.filter(k=>k!=='trade').map(k=>`<button class="btn ${k==='attack'?'':'ghost'}" data-act="${k}" ${waiting?'disabled':''}>
+        <span class="actName">${k==='attack'?'通常攻撃':SKILLS[k].name}</span>
+        <span class="actD">${k==='attack'?(mine.nextAttackMulti?`攻撃スキルの効果で${mine.nextAttackMulti.hits}連撃になる`:'相手に通常ダメージを与える'):descFor(k)}</span>
+      </button>`).join('')}
+    </div>
+    ${hasTrade ? `<div class="tradeBox">
+      <div class="muted" style="margin-bottom:6px">交換 ─ 相手のステータスから2つを選んで入れ替える</div>
+      <div class="row">
+        ${['hp','atk','def','spd'].map(k=>`<button class="btn ${L.tradeSel.includes(k)?'':'ghost'} sm" data-tradekey="${k}" ${waiting?'disabled':''}>${STAT_LABEL[k]}</button>`).join('')}
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn sm" id="tradeGo" ${(L.tradeSel.length===2 && !waiting)?'':'disabled'}>この2つを入れ替えて実行</button>
+      </div>
+    </div>` : ''}
+    <p class="muted" style="margin-top:8px">${waiting?'相手の行動を待っています…':'行動を選ぶと、速度の速いほうから処理されます'}</p>
+  </div>
+  <div class="panel">
+    <h2>戦闘ログ</h2>
+    <div class="log" id="log">${B.log.map(l=>`<p class="${l.c}">${esc(l.t)}</p>`).join('')}</div>
+  </div>`;
+  st.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{
+    L.act={turn:B.turn,action:b.dataset.act}; render();
+    await myIntentRef().update({clientId:me,name:S.names[role],
+      act:{round:S.round,turn:B.turn,action:b.dataset.act}});
+  });
+  st.querySelectorAll('[data-tradekey]').forEach(b=>b.onclick=()=>{
+    if(waiting)return;
+    const k=b.dataset.tradekey;
+    L.tradeSel = L.tradeSel.includes(k) ? L.tradeSel.filter(x=>x!==k) : (L.tradeSel.length<2?[...L.tradeSel,k]:L.tradeSel);
+    render();
+  });
+  const tg=$('#tradeGo'); if(tg) tg.onclick=async()=>{
+    const [k1,k2]=L.tradeSel;
+    const action=`trade:${k1}:${k2}`;
+    L.act={turn:B.turn,action}; L.tradeSel=[]; render();
+    await myIntentRef().update({clientId:me,name:S.names[role],
+      act:{round:S.round,turn:B.turn,action}});
+  };
+  const lg=$('#log'); if(lg) lg.scrollTop=lg.scrollHeight;
+}
+
+function renderRoundEnd(st){
+  const B=S.battle, w=B.winner;
+  st.innerHTML=`
+  <div class="panel">
+    <div class="result">
+      <div class="big ${w===1?'p1c':w===2?'p2c':''}">${w===0?'引き分け':esc(S.names[w])+' の勝ち'}</div>
+      <p class="muted">${B.turn-1}ターンで決着 ・ 通算 ${S.wins[1]} - ${S.wins[2]}</p>
+      <p class="num">獲得pt: ${esc(S.names[1])} +${w===0?Math.round((S.cfg.winPt+S.cfg.losePt)/2):(w===1?S.cfg.winPt:S.cfg.losePt)}　/　${esc(S.names[2])} +${w===0?Math.round((S.cfg.winPt+S.cfg.losePt)/2):(w===2?S.cfg.winPt:S.cfg.losePt)}</p>
+    </div>
+    <div class="row" style="justify-content:center">
+      ${role===1?`<button class="btn" id="nextBtn">${S.round>=S.cfg.rounds?'試合結果へ':'次のラウンドへ'}</button>`:'<span class="muted">ホストが次に進めるのを待っています…</span>'}
+    </div>
+  </div>
+  <div class="panel"><h2>戦闘ログ</h2>
+    <div class="log">${B.log.map(l=>`<p class="${l.c}">${esc(l.t)}</p>`).join('')}</div>
+  </div>`;
+  const nb=$('#nextBtn'); if(nb) nb.onclick=()=>{nb.disabled=true;nextRound()};
+  if(role===2) resetLocal();
+}
+
+function renderMatchEnd(st){
+  const w = S.wins[1]>S.wins[2]?1:S.wins[2]>S.wins[1]?2:0;
+  st.innerHTML=`<div class="panel"><div class="result">
+    <p class="muted">${S.cfg.rounds}ラウンド終了</p>
+    <div class="big ${w===1?'p1c':w===2?'p2c':''}">${w===0?'引き分け':esc(S.names[w])+' の勝利'}</div>
+    <p class="num" style="font-size:22px">${S.wins[1]} - ${S.wins[2]}</p>
+  </div>
+  <div class="row" style="justify-content:center">
+    ${role===1?'<button class="btn" id="againBtn">同じ設定でもう一度</button>':'<span class="muted">お疲れさまでした</span>'}
+  </div></div>`;
+  const ab=$('#againBtn'); if(ab) ab.onclick=async()=>{
+    resetLocal();
+    await myIntentRef().update({clientId:me,name:S.names[role]});
+    await setState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
+      wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
+      loadout:{1:{skills:[]},2:{skills:[]}}});
+  };
+}
+
+/* ============ 入口 ============ */
+function renderEntry(){
+  const c=DEFAULT_CFG;
+  const f=(k,label,step)=>`<div class="field"><label>${label}</label><input class="num" id="cfg_${k}" type="number" step="${step||1}" value="${c[k]}"></div>`;
+  $('#stage').innerHTML=`
+  <div class="lobby">
+    <div class="panel">
+      <h2>新しく部屋を作る</h2>
+      <div class="field"><label>あなたの名前</label><input id="hName" value="${esc(myName())}" placeholder="プレイヤー1"></div>
+      <button class="btn" id="createBtn">部屋を作る</button>
+      <p class="muted" style="margin-top:10px">作った人がホストになり、試合の進行を受け持ちます。ホストがページを閉じると進行が止まります。</p>
+    </div>
+    <div class="panel">
+      <h2>合言葉で参加する</h2>
+      <div class="field"><label>あなたの名前</label><input id="gName" value="${esc(myName())}" placeholder="プレイヤー2"></div>
+      <div class="field"><label>合言葉</label><input id="gCode" class="num" maxlength="5" placeholder="ABCDE" style="letter-spacing:.2em;text-transform:uppercase"></div>
+      <button class="btn ghost" id="joinBtn">参加する</button>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>数値設定 <small>部屋を作る人だけが決められます</small></h2>
+    <div class="cfg">
+      ${f('rounds','ラウンド数')}${f('maxTurns','1戦闘のターン上限')}
+      ${f('baseHp','初期HP')}${f('startPt','初期pt')}
+      ${f('baseAtk','初期攻撃力')}${f('winPt','勝利時の獲得pt')}
+      ${f('baseDef','初期防御力')}${f('losePt','敗北時の獲得pt')}
+      ${f('baseSpd','初期速度')}${f('ptLife','ptの有効ラウンド数')}
+      ${f('rerollBase','ショップ更新の基本費用')}${f('dblThr','追撃に必要な速度倍率(0で無効)','0.1')}
+      <div class="field"><label>ダメージの計算方法</label>
+        <select id="cfg_formula">
+          <option value="ratio">割合式 ─ 攻×攻÷(攻+防)</option>
+          <option value="sub">減算式 ─ 攻−防</option>
+        </select></div>
+      <div class="field"><label>ラウンドごとにスキル所持をリセット</label>
+        <select id="cfg_resetEachRound"><option value="1">リセットする</option><option value="0">持ち越す</option></select></div>
+    </div>
+    <p class="muted">ptはすべてスキル購入に使います。ステータスの直接強化はありません。基礎値は左のここで変えられます。</p>
+  </div>
+  <div class="panel">
+    <h2>スキルの必要pt・効果値 <small>デモ用にすべて変更できます(空欄は初期値のまま)</small></h2>
+    <div class="shop">
+      ${SKILL_IDS.map(k=>{
+        const s=SKILLS[k];
+        const params=PARAM_DEFS[k]||[];
+        return `<div class="skill" style="cursor:default">
+          <div class="h"><span class="nm">${esc(s.name)}</span></div>
+          <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
+          <div class="field"><label>必要pt</label><input class="num" id="skc_${k}" type="number" value="${s.cost}"></div>
+          ${params.map(p=>`<div class="field"><label>${esc(p.label)}</label><input class="num" id="skp_${k}_${p.key}" type="number" value="${p.default}"></div>`).join('')}
+        </div>`;
+      }).join('')}
+    </div>
+  </div>`;
+  const readCfg=()=>{
+    const out={...DEFAULT_CFG};
+    for(const k of Object.keys(DEFAULT_CFG)){
+      const el=document.getElementById('cfg_'+k); if(!el)continue;
+      if(k==='formula') out[k]=el.value;
+      else if(k==='resetEachRound') out[k]=el.value==='1';
+      else out[k]=parseFloat(el.value)||0;
+    }
+    out.rounds=clamp(Math.round(out.rounds),1,15);
+    out.maxTurns=clamp(Math.round(out.maxTurns),3,200);
+    out.ptLife=clamp(Math.round(out.ptLife),1,10);
+    out.skillCosts={};
+    out.skillParams={};
+    for(const k of SKILL_IDS){
+      const ce=document.getElementById('skc_'+k);
+      out.skillCosts[k]= ce ? Math.max(0,Math.round(parseFloat(ce.value)||0)) : SKILLS[k].cost;
+      const params=PARAM_DEFS[k]||[];
+      if(params.length){
+        out.skillParams[k]={};
+        for(const p of params){
+          const pe=document.getElementById(`skp_${k}_${p.key}`);
+          out.skillParams[k][p.key]= pe && pe.value!=='' ? parseFloat(pe.value) : p.default;
+        }
+      }
+    }
+    return out;
+  };
+  $('#createBtn').onclick=()=>createRoom($('#hName').value.trim()||'プレイヤー1',readCfg());
+  $('#joinBtn').onclick=()=>{
+    const c=$('#gCode').value.trim();
+    if(c.length<3){toast('合言葉を入力してください');return}
+    joinRoom($('#gName').value.trim()||'プレイヤー2',c);
+  };
+}
+
+/* ============ ヘルプ ============ */
+function renderHelpBody(){
+  const cfg = (S && S.cfg) ? S.cfg : DEFAULT_CFG;
+  return `
+  <h3>試合の流れ</h3>
+  <ul class="rules">
+    <li>全${cfg.rounds}ラウンドを行い、勝利数が多い方が試合に勝つ(引き分けはどちらの勝利数にも入らない)</li>
+    <li>各ラウンドの最初にショップで所持ptを使ってスキルを購入し、両者が確定したら戦闘開始</li>
+    <li>ラウンド勝利で+${cfg.winPt}pt、敗北で+${cfg.losePt}ptを獲得。ptは${cfg.ptLife}ラウンド後まで持ち越せる(古いptから消費)</li>
+    <li>基礎値: HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd}。ステータスの直接購入はなく、強化はすべてスキル経由</li>
+  </ul>
+  <h3>戦闘の処理順</h3>
+  <ul class="rules">
+    <li>毎ターン、両者は行動(通常攻撃 or 使用スキル)を選び、速度が高い方から順に処理される</li>
+    <li>速度が同値の場合は、奇数ラウンドはプレイヤー1、偶数ラウンドはプレイヤー2が先攻になる(ラウンドごとに交互で公平)</li>
+    <li>ダメージは${cfg.formula==='sub'?'「攻撃力−防御力」(減算式)':'「攻撃力×攻撃力÷(攻撃力+防御力)」(割合式)'}で計算</li>
+    <li>速度が相手の${cfg.dblThr}倍以上あると、その速い方がそのターンにもう一撃、追撃を行う${cfg.dblThr<=0?'(現在の設定では無効)':''}</li>
+    <li>相手が所持しているスキルや進行中の効果は戦闘中も非公開。発動した瞬間だけログに現れる</li>
+  </ul>
+  <h3>スキル一覧(全${SKILL_IDS.length}種・毎ラウンドこの中からランダム3枠がショップに並ぶ)</h3>
+  <div class="shop">
+    ${SKILL_IDS.map(k=>{
+      const s=SKILLS[k];
+      return `<div class="skill" style="cursor:default">
+        <div class="h"><span class="nm">${esc(s.name)}</span><span class="cost num">${costOf(k,cfg)}pt</span></div>
+        <span class="tag ${tagClsFor(s)}">${tagFor(k,cfg)}</span>
+        <span class="d">${esc(descFor(k,cfg))}</span>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+function openHelp(){ $('#helpBody').innerHTML = renderHelpBody(); $('#helpOverlay').classList.remove('hidden'); }
+function closeHelp(){ $('#helpOverlay').classList.add('hidden'); }
+
+(async function boot(){
+  me=clientId();
+  $('#helpBtn').onclick=openHelp;
+  $('#helpClose').onclick=closeHelp;
+  $('#helpOverlay').onclick=(e)=>{ if(e.target.id==='helpOverlay') closeHelp(); };
+
+  if(!window.firebase || !FIREBASE_CONFIG.apiKey || FIREBASE_CONFIG.apiKey.startsWith('YOUR_')){
+    $('#stage').innerHTML=`<div class="panel"><h2>Firebaseの設定が未入力です</h2>
+      <p class="muted">HTMLファイル冒頭の FIREBASE_CONFIG に、ご自身のFirebaseプロジェクトの設定値を入力してください。手順は同梱の README を参照してください。</p></div>`;
+    return;
+  }
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    const _rtdb = firebase.database();
+    /* Realtime Databaseの ref() を、このアプリが期待する
+       doc().get()/.set()/.update()/.onSnapshot() の形に合わせるための薄いアダプター */
+    function rtdbDoc(path){
+      const ref = _rtdb.ref(path);
+      const wrap = snap => ({ exists: snap.exists(), data: ()=>snap.val() });
+      return {
+        async get(){ return wrap(await ref.once('value')); },
+        async set(data){ return ref.set(data); },
+        async update(data){ return ref.update(data); },
+        onSnapshot(onNext, onError){
+          const cb = ref.on('value', snap=>onNext(wrap(snap)), err=>{ if(onError) onError(err); });
+          return ()=>ref.off('value', cb);
+        }
+      };
+    }
+    db = { doc: rtdbDoc };
+  }catch(e){
+    $('#stage').innerHTML=`<div class="panel"><h2>Firebaseへの接続に失敗しました</h2>
+      <p class="muted">${esc(e.message||String(e))}</p></div>`;
+    return;
+  }
+  renderEntry();
+})();
+</script>
+</body>
+</html>
