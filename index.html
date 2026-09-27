@@ -213,7 +213,8 @@ const FIREBASE_CONFIG = {
   projectId: "our-money-wars",
   storageBucket: "our-money-wars.firebasestorage.app",
   messagingSenderId: "56083801995",
-  appId: "1:56083801995:web:70db18a7eb6b2af139718e"
+  appId: "1:56083801995:web:70db18a7eb6b2af139718e",
+  measurementId: "G-V6K2C0VRS3"
 };
 </script>
 
@@ -552,13 +553,45 @@ async function setState(patch){
   S = {...S, ...patch};
   await db.doc('matches/'+code).set(S);
 }
+
+/* Realtime Databaseは値が空配列[]・空オブジェクト{}になった項目を
+   保存時に丸ごと消してしまう(Firestoreにはない挙動)。読み込むたびに
+   欠けている項目を初期値で復元しておく。 */
+function hydrateFighter(f){
+  if(!f) return f;
+  f.used = f.used || {};
+  f.fired = f.fired || {};
+  f.dots = f.dots || [];
+  f.skills = f.skills || [];
+  return f;
+}
+function hydrateMatch(m){
+  if(!m) return m;
+  m.history = m.history || [];
+  m.wins = m.wins || {1:0,2:0};
+  m.wallets = m.wallets || {};
+  m.wallets[1] = m.wallets[1] || [];
+  m.wallets[2] = m.wallets[2] || [];
+  m.loadout = m.loadout || {};
+  m.loadout[1] = m.loadout[1] || {skills:[]};
+  m.loadout[1].skills = m.loadout[1].skills || [];
+  m.loadout[2] = m.loadout[2] || {skills:[]};
+  m.loadout[2].skills = m.loadout[2].skills || [];
+  if(m.battle){
+    hydrateFighter(m.battle.p1);
+    hydrateFighter(m.battle.p2);
+    m.battle.log = m.battle.log || [];
+    m.battle.skipVotes = m.battle.skipVotes || {1:false,2:false};
+  }
+  return m;
+}
 function myIntentRef(){ return db.doc(`intents/${code}_${role}`); }
 
 function subscribe(){
   unsubs.forEach(u=>{try{u()}catch(e){}}); unsubs=[];
   unsubs.push(db.doc('matches/'+code).onSnapshot(s=>{
     if(!s.exists) return;
-    S=s.data(); render(); if(role===1) hostTick();
+    S=hydrateMatch(s.data()); render(); if(role===1) hostTick();
   }, e=>toast('同期エラー: '+e.code)));
   if(role===1){
     for(const n of [1,2]){
@@ -622,6 +655,7 @@ async function hostTick(){
     busy=true;
     if(S.phase==='lobby' && !S.guest && I2 && I2.clientId){
       await setState({guest:I2.clientId, names:{...S.names, 2:I2.name||'プレイヤー2'}});
+      render();
     }
     else if(S.phase==='shop'){
       const a=I1&&I1.shop&&I1.shop.round===S.round?I1.shop:null;
@@ -735,7 +769,7 @@ async function joinRoom(name,c){
   const snap=await db.doc('matches/'+c.toUpperCase()).get();
   if(!snap.exists){ toast('そのルームは見つかりません'); return; }
   code=c.toUpperCase(); role=2; localStorage.setItem('bsim_name',name);
-  S=snap.data();
+  S=hydrateMatch(snap.data());
   if(S.guest && S.guest!==me){ toast('このルームは満員です'); code=null;role=0;return; }
   await db.doc(`intents/${code}_2`).set({clientId:me,name});
   subscribe(); render();
@@ -790,20 +824,20 @@ function render(){
 }
 
 function renderLobby(st){
-  if(lobbyDrawn){
-    const w=$('#waitLine'); if(w) w.textContent = S.guest?`${S.names[2]} が参加しました`:'相手の参加を待っています…';
-    const b=$('#startBtn'); if(b) b.disabled=!S.guest;
-    return;
+  if(!lobbyDrawn){
+    lobbyDrawn=true;
+    st.innerHTML=`<div class="panel">
+      <h2>ルームができました</h2>
+      <p class="muted">この合言葉を相手に伝えてください。同じページを開いて「参加する」に入力します。</p>
+      <div class="codebox num">${code}</div>
+      <p class="muted" id="waitLine"></p>
+      ${role===1?`<div class="row" style="margin-top:12px"><button class="btn" id="startBtn">試合を始める</button></div>`:''}
+    </div>`;
+    if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await setState({phase:'shop'}); };
   }
-  lobbyDrawn=true;
-  st.innerHTML=`<div class="panel">
-    <h2>ルームができました</h2>
-    <p class="muted">この合言葉を相手に伝えてください。同じページを開いて「参加する」に入力します。</p>
-    <div class="codebox num">${code}</div>
-    <p class="muted" id="waitLine">${S.guest?esc(S.names[2])+' が参加しました':'相手の参加を待っています…'}</p>
-    ${role===1?`<div class="row" style="margin-top:12px"><button class="btn" id="startBtn" ${S.guest?'':'disabled'}>試合を始める</button></div>`:''}
-  </div>`;
-  if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await setState({phase:'shop'}); };
+  /* 参加状況の反映は毎回ここで無条件に行う(初回描画・再描画どちらでも同じ経路を通す) */
+  const w=$('#waitLine'); if(w) w.textContent = S.guest?`${S.names[2]} が参加しました`:'相手の参加を待っています…';
+  const b=$('#startBtn'); if(b) b.disabled=!S.guest;
 }
 
 function skillCard(k,owned,on,afford){
