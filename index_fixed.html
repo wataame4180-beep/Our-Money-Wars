@@ -213,7 +213,8 @@ const FIREBASE_CONFIG = {
   projectId: "our-money-wars",
   storageBucket: "our-money-wars.firebasestorage.app",
   messagingSenderId: "56083801995",
-  appId: "1:56083801995:web:70db18a7eb6b2af139718e"
+  appId: "1:56083801995:web:70db18a7eb6b2af139718e",
+  measurementId: "G-V6K2C0VRS3"
 };
 </script>
 
@@ -552,13 +553,45 @@ async function setState(patch){
   S = {...S, ...patch};
   await db.doc('matches/'+code).set(S);
 }
+
+/* Realtime Databaseは値が空配列[]・空オブジェクト{}になった項目を
+   保存時に丸ごと消してしまう(Firestoreにはない挙動)。読み込むたびに
+   欠けている項目を初期値で復元しておく。 */
+function hydrateFighter(f){
+  if(!f) return f;
+  f.used = f.used || {};
+  f.fired = f.fired || {};
+  f.dots = f.dots || [];
+  f.skills = f.skills || [];
+  return f;
+}
+function hydrateMatch(m){
+  if(!m) return m;
+  m.history = m.history || [];
+  m.wins = m.wins || {1:0,2:0};
+  m.wallets = m.wallets || {};
+  m.wallets[1] = m.wallets[1] || [];
+  m.wallets[2] = m.wallets[2] || [];
+  m.loadout = m.loadout || {};
+  m.loadout[1] = m.loadout[1] || {skills:[]};
+  m.loadout[1].skills = m.loadout[1].skills || [];
+  m.loadout[2] = m.loadout[2] || {skills:[]};
+  m.loadout[2].skills = m.loadout[2].skills || [];
+  if(m.battle){
+    hydrateFighter(m.battle.p1);
+    hydrateFighter(m.battle.p2);
+    m.battle.log = m.battle.log || [];
+    m.battle.skipVotes = m.battle.skipVotes || {1:false,2:false};
+  }
+  return m;
+}
 function myIntentRef(){ return db.doc(`intents/${code}_${role}`); }
 
 function subscribe(){
   unsubs.forEach(u=>{try{u()}catch(e){}}); unsubs=[];
   unsubs.push(db.doc('matches/'+code).onSnapshot(s=>{
     if(!s.exists) return;
-    S=s.data(); render(); if(role===1) hostTick();
+    S=hydrateMatch(s.data()); render(); if(role===1) hostTick();
   }, e=>toast('同期エラー: '+e.code)));
   if(role===1){
     for(const n of [1,2]){
@@ -736,7 +769,7 @@ async function joinRoom(name,c){
   const snap=await db.doc('matches/'+c.toUpperCase()).get();
   if(!snap.exists){ toast('そのルームは見つかりません'); return; }
   code=c.toUpperCase(); role=2; localStorage.setItem('bsim_name',name);
-  S=snap.data();
+  S=hydrateMatch(snap.data());
   if(S.guest && S.guest!==me){ toast('このルームは満員です'); code=null;role=0;return; }
   await db.doc(`intents/${code}_2`).set({clientId:me,name});
   subscribe(); render();
