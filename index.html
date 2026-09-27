@@ -65,6 +65,8 @@ input,select{font:inherit;color:inherit}
 .track i.w2{background:var(--p2);border-color:var(--p2);color:var(--paper2)}
 .track i.dr{background:var(--line);border-color:var(--line);color:var(--paper2)}
 
+.connDot{width:10px;height:10px;border-radius:50%;background:var(--p1);display:inline-block;
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--p1) 20%, transparent)}
 .skipBox{display:flex;align-items:center;gap:6px}
 .skipSq{width:15px;height:15px;border:1.5px solid var(--line);border-radius:3px;background:var(--paper2);display:inline-block}
 .skipSq.on{background:var(--ok);border-color:var(--ok)}
@@ -171,6 +173,7 @@ input,select{font:inherit;color:inherit}
     <h1>バトル調整卓</h1>
     <span class="code" id="codeLabel"></span>
     <span class="spacer"></span>
+    <span id="connDot" class="connDot" title="接続状態" style="display:none"></span>
     <div class="skipBox" id="skipBox"></div>
     <button class="btn ghost sm" id="helpBtn" title="遊び方・スキル一覧">？</button>
     <div class="track" id="track"></div>
@@ -425,7 +428,7 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     log.push({c:tagA,t:`${s.name} → 最大HPが${inc}増加。次のターンは行動不能になる`});
   }
   else if(actId==='dot'){
-    D.dots.push({dmg:A.dotDmg,turnsLeft:A.dotTurns,src:A});
+    D.dots.push({dmg:A.dotDmg,turnsLeft:A.dotTurns,srcTag:tagA});
     log.push({c:tagA,t:`${s.name} → ${A.dotTurns}ターンの間、毎ターン${A.dotDmg}ダメージ`});
   }
   else if(actId==='pierce'){
@@ -519,10 +522,13 @@ function resolveTurn(B,a1,a2,cfg,seed){
 
   for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
     if(!P.dots.length) continue;
-    let total=0, src=null;
-    P.dots.forEach(d=>{ total+=d.dmg; src=d.src; });
+    let total=0, srcTag=null;
+    P.dots.forEach(d=>{ total+=d.dmg; srcTag=d.srcTag; });
     if(total>0 && P.hp>0){
-      const srcTag = src===p1?'d1':(src===p2?'d2':tg);
+      /* 攻撃者オブジェクトはここで一時的に解決するだけで、状態には
+         タグ(d1/d2)しか保存しない。相手を指すオブジェクト参照を
+         持たせると循環参照になり、保存・同期が壊れるため。 */
+      const src = srcTag==='d1'?p1:(srcTag==='d2'?p2:null);
       const r=dealDamage(P,total,src,{});
       log.push({c:tg,t:`持続攻撃のダメージ → ${r.final}`});
       if(r.insGain>0) log.push({c:tg,t:`傷害保険で${r.insGain}pt獲得`});
@@ -537,7 +543,7 @@ function resolveTurn(B,a1,a2,cfg,seed){
 }
 
 /* ============ 通信・状態 ============ */
-let db=null, S=null, code=null, me=null, role=0, unsubs=[], I1=null, I2=null, busy=false;
+let db=null, S=null, code=null, me=null, role=0, unsubs=[], I1=null, I2=null, busy=false, busySince=0;
 let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[]};
 let lobbyDrawn=false;
 
@@ -552,6 +558,34 @@ function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null
 async function setState(patch){
   S = {...S, ...patch};
   await db.doc('matches/'+code).set(S);
+}
+
+/* UIのクリックハンドラから直接呼ぶ用。書き込みが失敗しても画面が
+   「送信中」のまま固まらないよう、失敗を検知してトースト表示し、
+   渡された onFail で楽観的な表示(待機中フラグなど)を元に戻す。 */
+async function safeIntentUpdate(patch, onFail){
+  try{
+    await myIntentRef().update(patch);
+    return true;
+  }catch(e){
+    console.error('intent update failed:', e);
+    toast('通信エラーで送信できませんでした。もう一度お試しください');
+    if(onFail) onFail();
+    render();
+    return false;
+  }
+}
+async function safeSetState(patch, onFail){
+  try{
+    await setState(patch);
+    return true;
+  }catch(e){
+    console.error('setState failed:', e);
+    toast('通信エラーで進行できませんでした。もう一度お試しください');
+    if(onFail) onFail();
+    render();
+    return false;
+  }
 }
 
 /* Realtime Databaseは値が空配列[]・空オブジェクト{}になった項目を
@@ -650,9 +684,16 @@ async function fastForwardBattle(){
 }
 
 async function hostTick(){
-  if(role!==1 || !S || busy) return;
+  if(role!==1 || !S) return;
+  if(busy){
+    /* 書き込みがネットワーク不調などで長時間ペンディングのまま返ってこないと
+       busyフラグが解除されず進行が永久に止まるため、一定時間で強制的に
+       解除して次のtickをやり直せるようにする */
+    if(Date.now()-busySince > 8000){ busy=false; }
+    else return;
+  }
   try{
-    busy=true;
+    busy=true; busySince=Date.now();
     if(S.phase==='lobby' && !S.guest && I2 && I2.clientId){
       await setState({guest:I2.clientId, names:{...S.names, 2:I2.name||'プレイヤー2'}});
       render();
@@ -738,14 +779,14 @@ async function stepBattle(a1,a2){
 
 async function nextRound(){
   const cfg=S.cfg;
-  if(S.round>=cfg.rounds){ await setState({phase:'matchEnd'}); return; }
+  if(S.round>=cfg.rounds){ await safeSetState({phase:'matchEnd'}); return; }
   const nextR=S.round+1;
   const w={1:walletExpire(S.wallets[1],nextR,cfg.ptLife),2:walletExpire(S.wallets[2],nextR,cfg.ptLife)};
   const blank={skills:[]};
   const load=cfg.resetEachRound?{1:{...blank},2:{...blank}}:S.loadout;
   resetLocal();
-  await myIntentRef().update({clientId:me,name:S.names[role]});
-  await setState({phase:'shop',round:nextR,wallets:w,loadout:load,battle:null});
+  if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
+  await safeSetState({phase:'shop',round:nextR,wallets:w,loadout:load,battle:null});
 }
 
 /* ============ ルーム作成/参加 ============ */
@@ -806,21 +847,28 @@ function renderSkipUI(){
   const svb=box.querySelector('#skipVoteBtn');
   if(svb) svb.onclick=async()=>{
     const newVal=!votes[role];
-    await myIntentRef().update({clientId:me,name:S.names[role], skipVote:{round:S.round, agree:newVal}});
+    await safeIntentUpdate({clientId:me,name:S.names[role], skipVote:{round:S.round, agree:newVal}});
   };
 }
 
 function render(){
-  renderTrack();
-  renderSkipUI();
-  const st=$('#stage');
-  if(!S){ return; }
-  if(S.phase==='lobby'){ renderLobby(st); return; }
-  lobbyDrawn=false;
-  if(S.phase==='shop') renderShop(st);
-  else if(S.phase==='battle') renderBattle(st);
-  else if(S.phase==='roundEnd') renderRoundEnd(st);
-  else if(S.phase==='matchEnd') renderMatchEnd(st);
+  try{
+    renderTrack();
+    renderSkipUI();
+    const st=$('#stage');
+    if(!S){ return; }
+    if(S.phase==='lobby'){ renderLobby(st); return; }
+    lobbyDrawn=false;
+    if(S.phase==='shop') renderShop(st);
+    else if(S.phase==='battle') renderBattle(st);
+    else if(S.phase==='roundEnd') renderRoundEnd(st);
+    else if(S.phase==='matchEnd') renderMatchEnd(st);
+  }catch(e){
+    console.error('render error:', e);
+    toast('画面の描画でエラーが発生しました(進行は続けます): '+(e.message||e));
+    const st=$('#stage');
+    if(st) st.innerHTML += `<div class="panel"><p class="muted">直前の描画でエラーが発生しました。ページを再読み込みすると復帰することがあります。</p></div>`;
+  }
 }
 
 function renderLobby(st){
@@ -833,7 +881,7 @@ function renderLobby(st){
       <p class="muted" id="waitLine"></p>
       ${role===1?`<div class="row" style="margin-top:12px"><button class="btn" id="startBtn">試合を始める</button></div>`:''}
     </div>`;
-    if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await setState({phase:'shop'}); };
+    if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await safeSetState({phase:'shop'}); };
   }
   /* 参加状況の反映は毎回ここで無条件に行う(初回描画・再描画どちらでも同じ経路を通す) */
   const w=$('#waitLine'); if(w) w.textContent = S.guest?`${S.names[2]} が参加しました`:'相手の参加を待っています…';
@@ -940,8 +988,8 @@ function renderShop(st){
   };
   $('#readyBtn').onclick=async()=>{
     L.ready=true; render();
-    await myIntentRef().update({clientId:me,name:S.names[role],
-      shop:{round:S.round,skills:[...L.skills],rerolls:L.rerolls}});
+    await safeIntentUpdate({clientId:me,name:S.names[role],
+      shop:{round:S.round,skills:[...L.skills],rerolls:L.rerolls}}, ()=>{ L.ready=false; });
   };
 }
 
@@ -1013,8 +1061,8 @@ function renderBattle(st){
   </div>`;
   st.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{
     L.act={turn:B.turn,action:b.dataset.act}; render();
-    await myIntentRef().update({clientId:me,name:S.names[role],
-      act:{round:S.round,turn:B.turn,action:b.dataset.act}});
+    await safeIntentUpdate({clientId:me,name:S.names[role],
+      act:{round:S.round,turn:B.turn,action:b.dataset.act}}, ()=>{ L.act=null; });
   });
   st.querySelectorAll('[data-tradekey]').forEach(b=>b.onclick=()=>{
     if(waiting)return;
@@ -1026,8 +1074,8 @@ function renderBattle(st){
     const [k1,k2]=L.tradeSel;
     const action=`trade:${k1}:${k2}`;
     L.act={turn:B.turn,action}; L.tradeSel=[]; render();
-    await myIntentRef().update({clientId:me,name:S.names[role],
-      act:{round:S.round,turn:B.turn,action}});
+    await safeIntentUpdate({clientId:me,name:S.names[role],
+      act:{round:S.round,turn:B.turn,action}}, ()=>{ L.act=null; });
   };
   const lg=$('#log'); if(lg) lg.scrollTop=lg.scrollHeight;
 }
@@ -1064,8 +1112,8 @@ function renderMatchEnd(st){
   </div></div>`;
   const ab=$('#againBtn'); if(ab) ab.onclick=async()=>{
     resetLocal();
-    await myIntentRef().update({clientId:me,name:S.names[role]});
-    await setState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
+    if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
+    await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
       loadout:{1:{skills:[]},2:{skills:[]}}});
   };
@@ -1223,11 +1271,35 @@ function closeHelp(){ $('#helpOverlay').classList.add('hidden'); }
       };
     }
     db = { doc: rtdbDoc };
+
+    /* 接続状態の表示。回線が切れている/不安定なときは
+       「バグで止まった」のか「単に繋がっていないだけ」なのかが
+       プレイヤーから見分けられるように、右上に小さく出す */
+    const dot=$('#connDot');
+    _rtdb.ref('.info/connected').on('value', snap=>{
+      if(!dot) return;
+      const ok = snap.val()===true;
+      dot.style.display='inline-block';
+      dot.style.background = ok ? 'var(--ok)' : 'var(--p1)';
+      dot.title = ok ? '接続中' : '接続が不安定です(通信を待っています)';
+      if(!ok) toast('サーバーとの接続が不安定です。しばらくお待ちください');
+    });
   }catch(e){
     $('#stage').innerHTML=`<div class="panel"><h2>Firebaseへの接続に失敗しました</h2>
       <p class="muted">${esc(e.message||String(e))}</p></div>`;
     return;
   }
+
+  /* 想定外のJSエラーを黙って失敗させず、必ずトーストで気づけるようにする */
+  window.addEventListener('error', e=>{
+    console.error('unhandled error:', e.error||e.message);
+    toast('予期しないエラーが発生しました: '+(e.message||e.error||''));
+  });
+  window.addEventListener('unhandledrejection', e=>{
+    console.error('unhandled rejection:', e.reason);
+    toast('予期しない通信エラーが発生しました: '+(e.reason&&e.reason.message||e.reason||''));
+  });
+
   renderEntry();
 })();
 </script>
