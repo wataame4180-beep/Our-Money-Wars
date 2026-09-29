@@ -70,6 +70,7 @@ input,select{font:inherit;color:inherit}
 .skipBox{display:flex;align-items:center;gap:6px}
 .skipSq{width:15px;height:15px;border:1.5px solid var(--line);border-radius:3px;background:var(--paper2);display:inline-block}
 .skipSq.on{background:var(--ok);border-color:var(--ok)}
+.endNote{font-size:12px;color:var(--p1)}
 
 .panel{background:var(--paper2);border:1.5px solid var(--line);border-radius:6px;padding:16px;margin-bottom:14px;
   box-shadow:0 1px 0 var(--shadow)}
@@ -174,6 +175,7 @@ input,select{font:inherit;color:inherit}
     <span class="code" id="codeLabel"></span>
     <span class="spacer"></span>
     <span id="connDot" class="connDot" title="接続状態" style="display:none"></span>
+    <div class="skipBox" id="endBox"></div>
     <div class="skipBox" id="skipBox"></div>
     <button class="btn ghost sm" id="helpBtn" title="遊び方・スキル一覧">？</button>
     <div class="track" id="track"></div>
@@ -240,6 +242,8 @@ const SKILLS = {
   regenB:   {name:"回復スキル", cost:400, cat:'active', d:"使用した次のターン開始時、直前のターンに受けたダメージの40%(端数切り捨て)を回復する。使用者が戦闘不能なら無効"},
   trade:    {name:"交換",     cost:650,  cat:'active', d:"相手のステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を1ターンだけ入れ替える"},
   evade:    {name:"回避",     cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
+  purge:    {name:"パージ",   cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
+  castOn:   {name:"キャストオン", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
 };
 const SKILL_IDS = Object.keys(SKILLS);
 const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
@@ -293,6 +297,8 @@ const PARAM_DEFS = {
   autoheal5:[{key:'pct',    label:'回復量(%)',             default:20},{key:'turn',label:'発動ターン',default:5}],
   regenB:   [{key:'pct',    label:'回復率(%)',             default:40}],
   evade:    [{key:'spdThreshold',label:'必要速度',         default:200}],
+  purge:    [{key:'hpPct',label:'消費HP(%)',default:10},{key:'spdPct',label:'速度上昇(%)',default:20},{key:'turns',label:'継続ターン数',default:3}],
+  castOn:   [{key:'spdPct',label:'速度低下(%)',default:10},{key:'defPct',label:'防御上昇(%)',default:10},{key:'turns',label:'継続ターン数',default:3}],
 };
 function paramOf(skillId, key, cfg){
   cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
@@ -317,6 +323,8 @@ function descFor(k, cfg){
     case 'regenB': return `使用した次のターン開始時、直前のターンに受けたダメージの${p('pct')}%(端数切り捨て)を回復する。使用者が戦闘不能なら無効`;
     case 'trade': return `相手のステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を1ターンだけ入れ替える`;
     case 'evade': return `速度が${p('spdThreshold')}以上のとき、相手の通常攻撃を1度だけ無効化する`;
+    case 'purge': return `使用するとHPの${p('hpPct')}%を消費し、速度が${p('spdPct')}%上昇する(${p('turns')}ターン継続)`;
+    case 'castOn': return `使用すると速度が${p('spdPct')}%低下し、防御力が${p('defPct')}%上昇する(${p('turns')}ターン継続)`;
   }
   return SKILLS[k].d;
 }
@@ -343,7 +351,7 @@ function mkFighter(load,cfg,nm){
     skills:sk, used:{}, fired:{},
     dmgTakenThisTurn:0, dmgTakenLastTurn:0,
     sleepSkip:false, pendingRegen:null, reflectArmed:false, nextAttackMulti:null,
-    tempDRTurns:0, dots:[], dodgeUsed:false,
+    tempDRTurns:0, dots:[], dodgeUsed:false, statBuffs:[],
     hasEvasion: sk.includes('evade'),
     insurance: sk.includes('insurance'), insuranceGain:0,
     tradeApplied:null,
@@ -362,6 +370,12 @@ function mkFighter(load,cfg,nm){
     autohealTurn: paramOf('autoheal5','turn',cfg),
     regenPct:     paramOf('regenB','pct',cfg)/100,
     evadeThreshold:paramOf('evade','spdThreshold',cfg),
+    purgeHpPct:   paramOf('purge','hpPct',cfg)/100,
+    purgeSpdPct:  paramOf('purge','spdPct',cfg)/100,
+    purgeTurns:   paramOf('purge','turns',cfg),
+    castOnSpdPct: paramOf('castOn','spdPct',cfg)/100,
+    castOnDefPct: paramOf('castOn','defPct',cfg)/100,
+    castOnTurns:  paramOf('castOn','turns',cfg),
   };
 }
 function rawDmg(atk,def,cfg){
@@ -462,6 +476,23 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
       log.push({c:tagA,t:`${s.name}は不正な指定のため発動しなかった`});
     }
   }
+  else if(actId==='purge'){
+    const hpCost=Math.round(A.maxHp*A.purgeHpPct);
+    A.hp=Math.max(0,A.hp-hpCost);
+    const spdBonus=Math.round(A.spd*A.purgeSpdPct);
+    A.spd+=spdBonus;
+    A.statBuffs.push({stat:'spd',delta:spdBonus,turnsLeft:A.purgeTurns});
+    log.push({c:tagA,t:`${s.name} → HPを${hpCost}消費し、速度が${spdBonus}上昇(${A.purgeTurns}ターン)`});
+  }
+  else if(actId==='castOn'){
+    const spdDrop=Math.round(A.spd*A.castOnSpdPct);
+    const defBonus=Math.round(A.def*A.castOnDefPct);
+    A.spd=Math.max(0,A.spd-spdDrop);
+    A.def+=defBonus;
+    A.statBuffs.push({stat:'spd',delta:-spdDrop,turnsLeft:A.castOnTurns});
+    A.statBuffs.push({stat:'def',delta:defBonus,turnsLeft:A.castOnTurns});
+    log.push({c:tagA,t:`${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
+  }
 }
 function fireTimed(P,O,cfg,log,tagP,tagO,R){
   for(const k of P.skills){
@@ -539,6 +570,19 @@ function resolveTurn(B,a1,a2,cfg,seed){
 
   for(const P of [p1,p2]){ if(P.tempDRTurns>0) P.tempDRTurns--; }
 
+  for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
+    if(!P.statBuffs || !P.statBuffs.length) continue;
+    P.statBuffs = P.statBuffs.filter(b=>{
+      b.turnsLeft--;
+      if(b.turnsLeft<=0){
+        P[b.stat] = Math.max(0, P[b.stat]-b.delta);
+        log.push({c:tg,t:`${P.nm}の${STAT_LABEL[b.stat]}変化が元に戻った`});
+        return false;
+      }
+      return true;
+    });
+  }
+
   return log;
 }
 
@@ -597,6 +641,7 @@ function hydrateFighter(f){
   f.fired = f.fired || {};
   f.dots = f.dots || [];
   f.skills = f.skills || [];
+  f.statBuffs = f.statBuffs || [];
   return f;
 }
 function hydrateMatch(m){
@@ -611,6 +656,8 @@ function hydrateMatch(m){
   m.loadout[1].skills = m.loadout[1].skills || [];
   m.loadout[2] = m.loadout[2] || {skills:[]};
   m.loadout[2].skills = m.loadout[2].skills || [];
+  m.matchEndVotes = m.matchEndVotes || {1:false,2:false};
+  m.matchId = m.matchId || 1;
   if(m.battle){
     hydrateFighter(m.battle.p1);
     hydrateFighter(m.battle.p2);
@@ -694,6 +741,22 @@ async function hostTick(){
   }
   try{
     busy=true; busySince=Date.now();
+    /* 4勝先取後の終了投票。スキップ投票と同じく各自のintentを集計して
+       S.matchEndVotes に反映し、両者が賛成したら最終結果へ進める。
+       票は試合(matchId)単位で有効で、ラウンドをまたいでも保持する。
+       再戦でmatchIdが変わるため、前の試合の票は数えない。 */
+    if((S.phase==='shop'||S.phase==='battle'||S.phase==='roundEnd') && majorityReached()){
+      const ev=I=>!!(I&&I.endVote&&I.endVote.match===S.matchId&&I.endVote.agree);
+      const e1=ev(I1), e2=ev(I2);
+      const curE=S.matchEndVotes||{1:false,2:false};
+      if(e1 && e2){
+        await setState({phase:'matchEnd', endedEarly:true, matchEndVotes:{1:false,2:false}});
+        return;
+      }
+      if(curE[1]!==e1 || curE[2]!==e2){
+        await setState({matchEndVotes:{1:e1,2:e2}});
+      }
+    }
     if(S.phase==='lobby' && !S.guest && I2 && I2.clientId){
       await setState({guest:I2.clientId, names:{...S.names, 2:I2.name||'プレイヤー2'}});
       render();
@@ -797,6 +860,7 @@ async function createRoom(name,cfg){
   S={
     host:me,guest:null,names:{1:name,2:'プレイヤー2'},cfg,
     phase:'lobby',round:1,wins:{1:0,2:0},history:[],
+    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,
     wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
     loadout:{1:{skills:[]},2:{skills:[]}},
     battle:null
@@ -832,6 +896,33 @@ function renderTrack(){
   $('#codeLabel').innerHTML = code?`ルーム <b class="num">${code}</b> ・ ${esc(S.names[role]||'')}(P${role})`:'';
 }
 
+function majorityReached(){
+  if(!S || !S.cfg || !S.wins) return false;
+  const maj = Math.floor(S.cfg.rounds/2)+1;
+  return S.wins[1]>=maj || S.wins[2]>=maj;
+}
+function renderEndUI(){
+  const box=$('#endBox');
+  if(!box) return;
+  if(!S || S.phase==='lobby' || S.phase==='matchEnd' || !majorityReached()){
+    box.innerHTML=''; return;
+  }
+  const votes=S.matchEndVotes||{1:false,2:false};
+  const opp=role===1?2:1;
+  const note = votes[opp]&&!votes[role] ? '相手が終了を希望しています'
+             : votes[role]&&!votes[opp] ? '相手の同意待ち' : '';
+  box.innerHTML=`
+    ${note?`<span class="muted endNote">${note}</span>`:''}
+    <button class="btn ${votes[role]?'':'ghost'} sm" id="endVoteBtn" title="双方が賛成すると、この時点で試合を終了します">終了</button>
+    <span class="skipSq ${votes[1]?'on':''}"></span>
+    <span class="skipSq ${votes[2]?'on':''}"></span>
+  `;
+  const evb=box.querySelector('#endVoteBtn');
+  if(evb) evb.onclick=async()=>{
+    const newVal=!votes[role];
+    await safeIntentUpdate({clientId:me,name:S.names[role], endVote:{match:S.matchId, agree:newVal}});
+  };
+}
 function renderSkipUI(){
   const box=$('#skipBox');
   if(!box) return;
@@ -854,6 +945,7 @@ function renderSkipUI(){
 function render(){
   try{
     renderTrack();
+    renderEndUI();
     renderSkipUI();
     const st=$('#stage');
     if(!S){ return; }
@@ -877,11 +969,28 @@ function renderLobby(st){
     st.innerHTML=`<div class="panel">
       <h2>ルームができました</h2>
       <p class="muted">この合言葉を相手に伝えてください。同じページを開いて「参加する」に入力します。</p>
-      <div class="codebox num">${code}</div>
+      <div class="row" style="align-items:baseline">
+        <div class="codebox num">${code}</div>
+        <button class="btn ghost sm" id="copyCodeBtn">コピー</button>
+      </div>
       <p class="muted" id="waitLine"></p>
       ${role===1?`<div class="row" style="margin-top:12px"><button class="btn" id="startBtn">試合を始める</button></div>`:''}
     </div>`;
     if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await safeSetState({phase:'shop'}); };
+    const cb=$('#copyCodeBtn'); if(cb) cb.onclick=async()=>{
+      try{
+        await navigator.clipboard.writeText(code);
+        toast('合言葉をコピーしました');
+      }catch(e){
+        /* clipboard APIが使えない環境向けのフォールバック */
+        const ta=document.createElement('textarea');
+        ta.value=code; ta.style.position='fixed'; ta.style.opacity='0';
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); toast('合言葉をコピーしました'); }
+        catch(e2){ toast('コピーに失敗しました。手動で選択してコピーしてください'); }
+        document.body.removeChild(ta);
+      }
+    };
   }
   /* 参加状況の反映は毎回ここで無条件に行う(初回描画・再描画どちらでも同じ経路を通す) */
   const w=$('#waitLine'); if(w) w.textContent = S.guest?`${S.names[2]} が参加しました`:'相手の参加を待っています…';
@@ -1005,6 +1114,10 @@ function fighterBadges(f){
     const dmg=f.dots[0].dmg;
     badges.push({t:`持続ダメージ 残り${left}T`, d:`毎ターン${dmg}ダメージ`});
   }
+  (f.statBuffs||[]).forEach(b=>{
+    const sign=b.delta>=0?'+':'';
+    badges.push({t:`${STAT_LABEL[b.stat]}${sign}${b.delta} 残り${b.turnsLeft}T`, d:'一定ターンで元に戻ります'});
+  });
   (f.skills||[]).forEach(k=>{
     const s=SKILLS[k];
     if(s.cat==='timed') badges.push({t:f.fired[k]?`${s.name}(発動済)`:`${s.name}(${f.autohealTurn}T後)`,d:descFor(k)});
@@ -1103,7 +1216,7 @@ function renderRoundEnd(st){
 function renderMatchEnd(st){
   const w = S.wins[1]>S.wins[2]?1:S.wins[2]>S.wins[1]?2:0;
   st.innerHTML=`<div class="panel"><div class="result">
-    <p class="muted">${S.cfg.rounds}ラウンド終了</p>
+    <p class="muted">${S.endedEarly?`${(S.history||[]).length}ラウンド終了(両者の合意により早期終了)`:`${S.cfg.rounds}ラウンド終了`}</p>
     <div class="big ${w===1?'p1c':w===2?'p2c':''}">${w===0?'引き分け':esc(S.names[w])+' の勝利'}</div>
     <p class="num" style="font-size:22px">${S.wins[1]} - ${S.wins[2]}</p>
   </div>
@@ -1114,6 +1227,7 @@ function renderMatchEnd(st){
     resetLocal();
     if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
     await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
+      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
       loadout:{1:{skills:[]},2:{skills:[]}}});
   };
@@ -1225,6 +1339,14 @@ function renderHelpBody(){
     <li>ダメージは${cfg.formula==='sub'?'「攻撃力−防御力」(減算式)':'「攻撃力×攻撃力÷(攻撃力+防御力)」(割合式)'}で計算</li>
     <li>速度が相手の${cfg.dblThr}倍以上あると、その速い方がそのターンにもう一撃、追撃を行う${cfg.dblThr<=0?'(現在の設定では無効)':''}</li>
     <li>相手が所持しているスキルや進行中の効果は戦闘中も非公開。発動した瞬間だけログに現れる</li>
+  </ul>
+  <h3>スキップ・早期終了</h3>
+  <ul class="rules">
+    <li>両者が使用スキルを使い切り、通常攻撃しか選べなくなると、画面右上に「スキップ」ボタンと四角2つが現れる</li>
+    <li>自分が賛成すると自分側の四角が灯る。双方賛成で両方灯ると、残りのターンが自動で処理され、その場で決着する</li>
+    <li>どちらかが全${cfg.rounds}ラウンド中${Math.floor(cfg.rounds/2)+1}ラウンドを先取すると、同じ位置に「終了」ボタンが現れる</li>
+    <li>双方が賛成すると、残りのラウンドを行わずにその時点で試合を終了できる(勝敗はそこまでの勝利数で決まる)</li>
+    <li>投票の賛成/反対(四角が灯っているかどうか)はお互いに見える。所持スキルや戦況とは違い、ここは非公開ではない</li>
   </ul>
   <h3>スキル一覧(全${SKILL_IDS.length}種・毎ラウンドこの中からランダム3枠がショップに並ぶ)</h3>
   <div class="shop">
