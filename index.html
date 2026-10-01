@@ -230,7 +230,7 @@ const FIREBASE_CONFIG = {
         'timed'  指定ターン終了時に自動発動(1戦闘1回)
         'econ'   戦闘とは無関係にptだけ動く(1回)          */
 const SKILLS = {
-  sleep:    {name:"睡眠",     cost:500,  cat:'active', d:"使用すると次のターンは行動できなくなる代わりに、最大HPが5%増える"},
+  sleep:    {name:"睡眠",     cost:500,  cat:'active', d:"使用すると次のターンは行動できなくなる代わりに、最大HPが5%増える(この増加分は以降全ラウンドに持ち越される)"},
   dot:      {name:"持続攻撃", cost:1500, cat:'active', d:"相手に500ダメージを、3ターンの間毎ターン与え続ける"},
   pierce:   {name:"貫通攻撃", cost:1450, cat:'active', d:"攻撃力の5倍の固定ダメージを与える。相手のスキルの効果を一切受けない"},
   insurance:{name:"傷害保険", cost:350,  cat:'buff',   d:"所持しているラウンドの間、ダメージを受けるたびに(受けたダメージ×0.5)ptを獲得する(端数切り捨て)"},
@@ -240,7 +240,7 @@ const SKILLS = {
   comboAtk: {name:"攻撃スキル", cost:400, cat:'active', d:"次の通常攻撃が、本来のダメージの30%分を与える5連撃になる"},
   autoheal5:{name:"回復スキル", cost:300, cat:'timed', turn:5, d:"5ターン後に自動で発動。最大HPの20%を即時回復する"},
   regenB:   {name:"回復スキル", cost:400, cat:'active', d:"使用した次のターン開始時、直前のターンに受けたダメージの40%(端数切り捨て)を回復する。使用者が戦闘不能なら無効"},
-  trade:    {name:"交換",     cost:650,  cat:'active', d:"相手のステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を1ターンだけ入れ替える"},
+  trade:    {name:"交換",     cost:650,  cat:'active', d:"自分か相手を選び、そのステータス(HP・攻撃力・防御力・速度)から2つを選んで、その値を2ターンの間入れ替える"},
   evade:    {name:"回避",     cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
   purge:    {name:"パージ",   cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
   castOn:   {name:"キャストオン", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
@@ -296,7 +296,8 @@ const PARAM_DEFS = {
   comboAtk: [{key:'hits',   label:'連撃回数',              default:5},{key:'pct',label:'1発あたりの威力(%)',default:30}],
   autoheal5:[{key:'pct',    label:'回復量(%)',             default:20},{key:'turn',label:'発動ターン',default:5}],
   regenB:   [{key:'pct',    label:'回復率(%)',             default:40}],
-  evade:    [{key:'spdThreshold',label:'必要速度',         default:200}],
+  evade:    [{key:'spdThreshold',label:'必要速度',         default:136}],
+  trade:    [{key:'turns',label:'継続ターン数',default:2}],
   purge:    [{key:'hpPct',label:'消費HP(%)',default:10},{key:'spdPct',label:'速度上昇(%)',default:20},{key:'turns',label:'継続ターン数',default:3}],
   castOn:   [{key:'spdPct',label:'速度低下(%)',default:10},{key:'defPct',label:'防御上昇(%)',default:10},{key:'turns',label:'継続ターン数',default:3}],
 };
@@ -311,7 +312,7 @@ function descFor(k, cfg){
   cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
   const p = key => paramOf(k,key,cfg);
   switch(k){
-    case 'sleep': return `使用すると次のターンは行動できなくなる代わりに、最大HPが${p('hpPct')}%増える`;
+    case 'sleep': return `使用すると次のターンは行動できなくなる代わりに、最大HPが${p('hpPct')}%増える(この増加分は以降全ラウンドに持ち越される)`;
     case 'dot': return `相手に${p('dmg')}ダメージを、${p('turns')}ターンの間毎ターン与え続ける`;
     case 'pierce': return `攻撃力の${p('mult')}倍の固定ダメージを与える。相手のスキルの効果を一切受けない`;
     case 'insurance': return `所持しているラウンドの間、ダメージを受けるたびに受けたダメージの${p('rate')}%をptとして獲得する(端数切り捨て)`;
@@ -321,7 +322,7 @@ function descFor(k, cfg){
     case 'comboAtk': return `次の通常攻撃が、本来のダメージの${p('pct')}%分を与える${p('hits')}連撃になる`;
     case 'autoheal5': return `${p('turn')}ターン後に自動で発動。最大HPの${p('pct')}%を即時回復する`;
     case 'regenB': return `使用した次のターン開始時、直前のターンに受けたダメージの${p('pct')}%(端数切り捨て)を回復する。使用者が戦闘不能なら無効`;
-    case 'trade': return `相手のステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を1ターンだけ入れ替える`;
+    case 'trade': return `自分か相手、どちらか選んだプレイヤーのステータス(HP・攻撃力・防御力・速度)から2つを選び、その値を${p('turns')}ターンの間入れ替える`;
     case 'evade': return `速度が${p('spdThreshold')}以上のとき、相手の通常攻撃を1度だけ無効化する`;
     case 'purge': return `使用するとHPの${p('hpPct')}%を消費し、速度が${p('spdPct')}%上昇する(${p('turns')}ターン継続)`;
     case 'castOn': return `使用すると速度が${p('spdPct')}%低下し、防御力が${p('defPct')}%上昇する(${p('turns')}ターン継続)`;
@@ -344,11 +345,12 @@ function walletSpend(w,amt){
 function walletExpire(w,round,life){ return (w||[]).filter(e=>round - e.round < life); }
 
 /* ============ 戦闘エンジン(ホストのみ実行) ============ */
-function mkFighter(load,cfg,nm){
+function mkFighter(load,cfg,nm,extraMaxHp){
   const sk=load.skills||[];
+  extraMaxHp = extraMaxHp||0;
   return {
-    nm, maxHp:cfg.baseHp, hp:cfg.baseHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
-    skills:sk, used:{}, fired:{},
+    nm, maxHp:cfg.baseHp+extraMaxHp, hp:cfg.baseHp+extraMaxHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
+    skills:sk, used:{}, fired:{}, sleepBonusEarned:0,
     dmgTakenThisTurn:0, dmgTakenLastTurn:0,
     sleepSkip:false, pendingRegen:null, reflectArmed:false, nextAttackMulti:null,
     tempDRTurns:0, dots:[], dodgeUsed:false, statBuffs:[],
@@ -370,6 +372,7 @@ function mkFighter(load,cfg,nm){
     autohealTurn: paramOf('autoheal5','turn',cfg),
     regenPct:     paramOf('regenB','pct',cfg)/100,
     evadeThreshold:paramOf('evade','spdThreshold',cfg),
+    tradeTurns:   paramOf('trade','turns',cfg),
     purgeHpPct:   paramOf('purge','hpPct',cfg)/100,
     purgeSpdPct:  paramOf('purge','spdPct',cfg)/100,
     purgeTurns:   paramOf('purge','turns',cfg),
@@ -439,7 +442,8 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     A.sleepSkip=true;
     const inc=Math.round(A.maxHp*A.sleepHpPct);
     A.maxHp+=inc; A.hp=Math.min(A.maxHp,A.hp+inc);
-    log.push({c:tagA,t:`${s.name} → 最大HPが${inc}増加。次のターンは行動不能になる`});
+    A.sleepBonusEarned=(A.sleepBonusEarned||0)+inc; /* 以降のラウンドにも永続で持ち越す分 */
+    log.push({c:tagA,t:`${s.name} → 最大HPが${inc}増加(以降のラウンドにも持ち越されます)。次のターンは行動不能になる`});
   }
   else if(actId==='dot'){
     D.dots.push({dmg:A.dotDmg,turnsLeft:A.dotTurns,srcTag:tagA});
@@ -466,12 +470,20 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     log.push({c:tagA,t:`${s.name} → 次のターン開始時に回復する`});
   }
   else if(actId==='trade'){
-    const parts=(act||'').split(':'); const k1=parts[1], k2=parts[2];
-    if(STAT_LABEL[k1] && STAT_LABEL[k2] && k1!==k2){
-      const v1=D[k1], v2=D[k2];
-      D[k1]=v2; D[k2]=v1;
-      D.tradeApplied={turn:A.__turn, keys:[k1,k2], values:[v1,v2]};
-      log.push({c:tagA,t:`${s.name} → 相手の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた`});
+    const parts=(act||'').split(':');
+    const k1=parts[1], k2=parts[2], targetRole=parts[3];
+    /* targetRole: '1'=プレイヤー1, '2'=プレイヤー2。tagAが'd1'ならA=p1、そうでなければA=p2 */
+    const meIsP1 = tagA==='d1';
+    let target;
+    if(targetRole==='1') target = meIsP1 ? A : D;
+    else if(targetRole==='2') target = meIsP1 ? D : A;
+    else target = D; /* 未指定時は従来通り相手を対象にする */
+    if(STAT_LABEL[k1] && STAT_LABEL[k2] && k1!==k2 && target){
+      const v1=target[k1], v2=target[k2];
+      target[k1]=v2; target[k2]=v1;
+      target.tradeApplied={turnsLeft:A.tradeTurns, keys:[k1,k2], values:[v1,v2]};
+      const who = target===A ? '自分' : '相手';
+      log.push({c:tagA,t:`${s.name} → ${who}の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた(${A.tradeTurns}ターン)`});
     } else {
       log.push({c:tagA,t:`${s.name}は不正な指定のため発動しなかった`});
     }
@@ -514,15 +526,6 @@ function resolveTurn(B,a1,a2,cfg,seed){
   p2.dmgTakenLastTurn=p2.dmgTakenThisTurn; p2.dmgTakenThisTurn=0;
   p1.__turn=B.turn; p2.__turn=B.turn;
   const log=[{c:'t',t:`ターン ${B.turn}`}];
-
-  for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
-    if(P.tradeApplied && P.tradeApplied.turn===B.turn-1){
-      const {keys,values}=P.tradeApplied;
-      P[keys[0]]=values[0]; P[keys[1]]=values[1];
-      log.push({c:tg,t:`交換の効果が切れ、ステータスが元に戻った`});
-      P.tradeApplied=null;
-    }
-  }
 
   for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
     if(P.pendingRegen===B.turn){
@@ -583,12 +586,23 @@ function resolveTurn(B,a1,a2,cfg,seed){
     });
   }
 
+  for(const [P,tg] of [[p1,'d1'],[p2,'d2']]){
+    if(!P.tradeApplied) continue;
+    P.tradeApplied.turnsLeft--;
+    if(P.tradeApplied.turnsLeft<=0){
+      const {keys,values}=P.tradeApplied;
+      P[keys[0]]=values[0]; P[keys[1]]=values[1];
+      log.push({c:tg,t:`交換の効果が切れ、ステータスが元に戻った`});
+      P.tradeApplied=null;
+    }
+  }
+
   return log;
 }
 
 /* ============ 通信・状態 ============ */
 let db=null, S=null, code=null, me=null, role=0, unsubs=[], I1=null, I2=null, busy=false, busySince=0;
-let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[]};
+let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null};
 let lobbyDrawn=false;
 
 function clientId(){
@@ -597,7 +611,7 @@ function clientId(){
   return id;
 }
 function myName(){ return localStorage.getItem('bsim_name') || ''; }
-function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[]}; }
+function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null}; }
 
 async function setState(patch){
   S = {...S, ...patch};
@@ -658,6 +672,9 @@ function hydrateMatch(m){
   m.loadout[2].skills = m.loadout[2].skills || [];
   m.matchEndVotes = m.matchEndVotes || {1:false,2:false};
   m.matchId = m.matchId || 1;
+  m.hpBonus = m.hpBonus || {1:0,2:0};
+  m.hpBonus[1] = m.hpBonus[1] || 0;
+  m.hpBonus[2] = m.hpBonus[2] || 0;
   if(m.battle){
     hydrateFighter(m.battle.p1);
     hydrateFighter(m.battle.p2);
@@ -701,7 +718,10 @@ async function endRound(B, winner){
   }
   if(B.p1.insuranceGain>0){ w[1]=[...w[1],{round:nextR,amt:B.p1.insuranceGain}]; B.log.push({c:'d1',t:`${S.names[1]}: 傷害保険で合計${B.p1.insuranceGain}pt獲得`}); }
   if(B.p2.insuranceGain>0){ w[2]=[...w[2],{round:nextR,amt:B.p2.insuranceGain}]; B.log.push({c:'d2',t:`${S.names[2]}: 傷害保険で合計${B.p2.insuranceGain}pt獲得`}); }
-  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w});
+  const hpBonus = {...(S.hpBonus||{1:0,2:0})};
+  if(B.p1.sleepBonusEarned>0){ hpBonus[1]=(hpBonus[1]||0)+B.p1.sleepBonusEarned; B.log.push({c:'d1',t:`${S.names[1]}: 睡眠の効果で最大HP+${B.p1.sleepBonusEarned}が以降も継続`}); }
+  if(B.p2.sleepBonusEarned>0){ hpBonus[2]=(hpBonus[2]||0)+B.p2.sleepBonusEarned; B.log.push({c:'d2',t:`${S.names[2]}: 睡眠の効果で最大HP+${B.p2.sleepBonusEarned}が以降も継続`}); }
+  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w,hpBonus});
 }
 
 function noActiveLeft(f){ return (f.skills||[]).filter(k=>SKILLS[k].cat==='active' && !f.used[k]).length===0; }
@@ -800,7 +820,8 @@ async function startBattle(a,b){
   const cfg=S.cfg;
   const r1=applyShop(a,S.wallets[1],S.loadout[1],cfg);
   const r2=applyShop(b,S.wallets[2],S.loadout[2],cfg);
-  const f1=mkFighter(r1.load,cfg,S.names[1]), f2=mkFighter(r2.load,cfg,S.names[2]);
+  const hpBonus = S.hpBonus||{1:0,2:0};
+  const f1=mkFighter(r1.load,cfg,S.names[1],hpBonus[1]), f2=mkFighter(r2.load,cfg,S.names[2],hpBonus[2]);
   const log=[];
   if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のため購入は無効`});
   if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のため購入は無効`});
@@ -860,7 +881,7 @@ async function createRoom(name,cfg){
   S={
     host:me,guest:null,names:{1:name,2:'プレイヤー2'},cfg,
     phase:'lobby',round:1,wins:{1:0,2:0},history:[],
-    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,
+    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,hpBonus:{1:0,2:0},
     wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
     loadout:{1:{skills:[]},2:{skills:[]}},
     battle:null
@@ -1158,12 +1179,16 @@ function renderBattle(st){
       </button>`).join('')}
     </div>
     ${hasTrade ? `<div class="tradeBox">
-      <div class="muted" style="margin-bottom:6px">交換 ─ 相手のステータスから2つを選んで入れ替える</div>
+      <div class="muted" style="margin-bottom:6px">交換 ─ 対象と、入れ替えるステータス2つを選ぶ</div>
       <div class="row">
+        <button class="btn ${L.tradeTarget==='self'?'':'ghost'} sm" data-tradetarget="self" ${waiting?'disabled':''}>自分を対象</button>
+        <button class="btn ${L.tradeTarget==='opp'?'':'ghost'} sm" data-tradetarget="opp" ${waiting?'disabled':''}>相手を対象</button>
+      </div>
+      <div class="row" style="margin-top:8px">
         ${['hp','atk','def','spd'].map(k=>`<button class="btn ${L.tradeSel.includes(k)?'':'ghost'} sm" data-tradekey="${k}" ${waiting?'disabled':''}>${STAT_LABEL[k]}</button>`).join('')}
       </div>
       <div class="row" style="margin-top:8px">
-        <button class="btn sm" id="tradeGo" ${(L.tradeSel.length===2 && !waiting)?'':'disabled'}>この2つを入れ替えて実行</button>
+        <button class="btn sm" id="tradeGo" ${(L.tradeTarget && L.tradeSel.length===2 && !waiting)?'':'disabled'}>この2つを入れ替えて実行</button>
       </div>
     </div>` : ''}
     <p class="muted" style="margin-top:8px">${waiting?'相手の行動を待っています…':'行動を選ぶと、速度の速いほうから処理されます'}</p>
@@ -1177,6 +1202,11 @@ function renderBattle(st){
     await safeIntentUpdate({clientId:me,name:S.names[role],
       act:{round:S.round,turn:B.turn,action:b.dataset.act}}, ()=>{ L.act=null; });
   });
+  st.querySelectorAll('[data-tradetarget]').forEach(b=>b.onclick=()=>{
+    if(waiting)return;
+    L.tradeTarget = b.dataset.tradetarget;
+    render();
+  });
   st.querySelectorAll('[data-tradekey]').forEach(b=>b.onclick=()=>{
     if(waiting)return;
     const k=b.dataset.tradekey;
@@ -1185,8 +1215,10 @@ function renderBattle(st){
   });
   const tg=$('#tradeGo'); if(tg) tg.onclick=async()=>{
     const [k1,k2]=L.tradeSel;
-    const action=`trade:${k1}:${k2}`;
-    L.act={turn:B.turn,action}; L.tradeSel=[]; render();
+    /* 自分視点の self/opp を、サーバー側で扱うプレイヤー番号(1/2)に変換して送る */
+    const targetRole = L.tradeTarget==='self' ? String(role) : String(role===1?2:1);
+    const action=`trade:${k1}:${k2}:${targetRole}`;
+    L.act={turn:B.turn,action}; L.tradeSel=[]; L.tradeTarget=null; render();
     await safeIntentUpdate({clientId:me,name:S.names[role],
       act:{round:S.round,turn:B.turn,action}}, ()=>{ L.act=null; });
   };
@@ -1227,7 +1259,7 @@ function renderMatchEnd(st){
     resetLocal();
     if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
     await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
-      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,
+      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,hpBonus:{1:0,2:0},
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
       loadout:{1:{skills:[]},2:{skills:[]}}});
   };
