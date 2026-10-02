@@ -127,7 +127,20 @@ input,select{font:inherit;color:inherit}
 .fighter.me{border-color:var(--ink);border-width:2.5px}
 .fighter .who{font-weight:900;font-size:14px;margin-bottom:6px}
 .p1c{color:var(--p1)} .p2c{color:var(--p2)}
+.hpbarWrap{position:relative}
 .hpbar{height:16px;border:1.5px solid var(--ink);border-radius:3px;overflow:hidden;background:var(--paper)}
+.hpFx{position:absolute;right:4px;top:50%;width:0;height:0;pointer-events:none;z-index:4}
+.hpFxIcon{position:absolute;left:0;top:0;font-size:22px;line-height:1;
+  transform:translate(-50%,-50%) scale(.4);opacity:0;
+  animation:hpFxPop 1.1s cubic-bezier(.2,.8,.3,1) forwards;
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.45))}
+@keyframes hpFxPop{
+  0%{ transform:translate(-50%,-50%) scale(.4); opacity:0; }
+  18%{ transform:translate(-50%,-150%) scale(1.5); opacity:1; }
+  70%{ transform:translate(-50%,-180%) scale(1.15); opacity:1; }
+  100%{ transform:translate(-50%,-230%) scale(1); opacity:0; }
+}
+@media (prefers-reduced-motion: reduce){ .hpFxIcon{animation:none;opacity:0} }
 .hpbar div{height:100%;transition:width .35s ease}
 .hpnum{font-size:13px;margin-top:4px;font-weight:700}
 .miniStats{display:flex;gap:12px;font-size:12px;color:var(--ink-soft);margin-top:6px;flex-wrap:wrap}
@@ -249,6 +262,7 @@ const SKILLS = {
   evade:    {name:"回避",     icon:"💨", cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
   purge:    {name:"パージ",   icon:"🔥", cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
   castOn:   {name:"キャストオン", icon:"🪄", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
+  soulStrike:{name:"魂魄理念", icon:"👻", cost:600, cat:'active', d:"使用すると『魂の打撃』を付与し、通常攻撃が最大HPの5%ダメージになる(永続)。すでに付与中にもう一度使うと解除し、通常攻撃を攻撃力ベースの通常ダメージに戻す"},
 };
 const SKILL_IDS = Object.keys(SKILLS);
 const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
@@ -305,6 +319,7 @@ const PARAM_DEFS = {
   trade:    [{key:'turns',label:'継続ターン数',default:2}],
   purge:    [{key:'hpPct',label:'消費HP(%)',default:10},{key:'spdPct',label:'速度上昇(%)',default:20},{key:'turns',label:'継続ターン数',default:3}],
   castOn:   [{key:'spdPct',label:'速度低下(%)',default:10},{key:'defPct',label:'防御上昇(%)',default:10},{key:'turns',label:'継続ターン数',default:3}],
+  soulStrike:[{key:'hpPct',label:'通常攻撃ダメージ(最大HPの%)',default:5}],
 };
 function paramOf(skillId, key, cfg){
   cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
@@ -331,6 +346,7 @@ function descFor(k, cfg){
     case 'evade': return `速度が${p('spdThreshold')}以上のとき、相手の通常攻撃を1度だけ無効化する`;
     case 'purge': return `使用するとHPの${p('hpPct')}%を消費し、速度が${p('spdPct')}%上昇する(${p('turns')}ターン継続)`;
     case 'castOn': return `使用すると速度が${p('spdPct')}%低下し、防御力が${p('defPct')}%上昇する(${p('turns')}ターン継続)`;
+    case 'soulStrike': return `使用すると『魂の打撃』を付与し、通常攻撃が最大HPの${p('hpPct')}%ダメージになる(永続)。付与中にもう一度使うと解除し、通常攻撃を元(攻撃力ベース)に戻す`;
   }
   return SKILLS[k].d;
 }
@@ -350,12 +366,14 @@ function walletSpend(w,amt){
 function walletExpire(w,round,life){ return (w||[]).filter(e=>round - e.round < life); }
 
 /* ============ 戦闘エンジン(ホストのみ実行) ============ */
-function mkFighter(load,cfg,nm,extraMaxHp){
+function mkFighter(load,cfg,nm,extraMaxHp,hasSoulStrike){
   const sk=load.skills||[];
   extraMaxHp = extraMaxHp||0;
   return {
     nm, maxHp:cfg.baseHp+extraMaxHp, hp:cfg.baseHp+extraMaxHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
     skills:sk, used:{}, fired:{}, sleepBonusEarned:0,
+    hasSoulStrike: !!hasSoulStrike,
+    soulStrikePct: paramOf('soulStrike','hpPct',cfg)/100,
     dmgTakenThisTurn:0, dmgTakenLastTurn:0,
     sleepSkip:false, pendingRegen:null, reflectArmed:false, nextAttackMulti:null,
     tempDRTurns:0, dots:[], dodgeUsed:false, statBuffs:[],
@@ -429,50 +447,53 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
   if(A.sleepSkip){ A.sleepSkip=false; log.push({c:tagA,t:`${A.nm}は眠っていて行動できない`}); return; }
   const actId = (act||'').includes(':') ? act.split(':')[0] : act;
   if(actId==='attack' || !SKILLS[actId]){
+    const soulDmg = A.hasSoulStrike ? Math.round(A.maxHp*A.soulStrikePct) : null;
     if(A.nextAttackMulti){
       const {hits,pct}=A.nextAttackMulti; A.nextAttackMulti=null;
       log.push({c:tagA,t:`攻撃スキルの効果で${hits}連撃!`});
-      for(let i=0;i<hits;i++){ if(D.hp<=0)break; strike(A,D,cfg,pct,log,tagA,tagD,R,{isNormal:true}); }
+      for(let i=0;i<hits;i++){ if(D.hp<=0)break; strike(A,D,cfg,pct,log,tagA,tagD,R,{isNormal:true, fixedDmg: soulDmg!=null?Math.round(soulDmg*pct):null}); }
     } else {
-      strike(A,D,cfg,1,log,tagA,tagD,R,{isNormal:true});
+      strike(A,D,cfg,1,log,tagA,tagD,R,{isNormal:true, fixedDmg: soulDmg});
     }
     return;
   }
-  if(A.used[actId] || SKILLS[actId].cat!=='active' || !A.skills.includes(actId)){
+  /* 魂魄理念は何度でもトグルできるスキルなので、1戦闘1回の制限(A.used)だけ除外する */
+  const blockedByOnceOnly = actId!=='soulStrike' && A.used[actId];
+  if(blockedByOnceOnly || SKILLS[actId].cat!=='active' || !A.skills.includes(actId)){
     log.push({c:tagA,t:`${A.nm}は行動できなかった`}); return;
   }
-  A.used[actId]=true;
+  if(actId!=='soulStrike') A.used[actId]=true;
   const s=SKILLS[actId];
   if(actId==='sleep'){
     A.sleepSkip=true;
     const inc=Math.round(A.maxHp*A.sleepHpPct);
     A.maxHp+=inc; A.hp=Math.min(A.maxHp,A.hp+inc);
     A.sleepBonusEarned=(A.sleepBonusEarned||0)+inc; /* 以降のラウンドにも永続で持ち越す分 */
-    log.push({c:tagA,t:`${s.icon} ${s.name} → 最大HPが${inc}増加(以降のラウンドにも持ち越されます)。次のターンは行動不能になる`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 最大HPが${inc}増加(以降のラウンドにも持ち越されます)。次のターンは行動不能になる`});
   }
   else if(actId==='dot'){
     D.dots.push({dmg:A.dotDmg,turnsLeft:A.dotTurns,srcTag:tagA});
-    log.push({c:tagA,t:`${s.icon} ${s.name} → ${A.dotTurns}ターンの間、毎ターン${A.dotDmg}ダメージ`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → ${A.dotTurns}ターンの間、毎ターン${A.dotDmg}ダメージ`});
   }
   else if(actId==='pierce'){
-    log.push({c:tagA,t:`${s.icon} ${s.name}!`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name}!`});
     strike(A,D,cfg,1,log,tagA,tagD,R,{fixedDmg:Math.round(A.atk*A.pierceMult), bypassDefenderSkills:true});
   }
   else if(actId==='drGuard'){
     A.tempDRTurns=A.drGuardTurns;
-    log.push({c:tagA,t:`${s.icon} ${s.name} → ${A.drGuardTurns}ターンの間、被ダメージ-${Math.round(A.tempDRPct*100)}%`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → ${A.drGuardTurns}ターンの間、被ダメージ-${Math.round(A.tempDRPct*100)}%`});
   }
   else if(actId==='reflect'){
     A.reflectArmed=true;
-    log.push({c:tagA,t:`${s.icon} ${s.name} → 次に受けるダメージの${Math.round(A.reflectPct*100)}%を反射`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 次に受けるダメージの${Math.round(A.reflectPct*100)}%を反射`});
   }
   else if(actId==='comboAtk'){
     A.nextAttackMulti={hits:A.comboHits,pct:A.comboPct};
-    log.push({c:tagA,t:`${s.icon} ${s.name} → 次の通常攻撃が${A.comboHits}連撃になる`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 次の通常攻撃が${A.comboHits}連撃になる`});
   }
   else if(actId==='regenB'){
     A.pendingRegen = A.__turn+1;
-    log.push({c:tagA,t:`${s.icon} ${s.name} → 次のターン開始時に回復する`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 次のターン開始時に回復する`});
   }
   else if(actId==='trade'){
     const parts=(act||'').split(':');
@@ -488,7 +509,7 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
       target[k1]=v2; target[k2]=v1;
       target.tradeApplied={turnsLeft:A.tradeTurns, keys:[k1,k2], values:[v1,v2]};
       const who = target===A ? '自分' : '相手';
-      log.push({c:tagA,t:`${s.icon} ${s.name} → ${who}の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた(${A.tradeTurns}ターン)`});
+      log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → ${who}の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた(${A.tradeTurns}ターン)`});
     } else {
       log.push({c:tagA,t:`${s.icon} ${s.name}は不正な指定のため発動しなかった`});
     }
@@ -499,7 +520,7 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     const spdBonus=Math.round(A.spd*A.purgeSpdPct);
     A.spd+=spdBonus;
     A.statBuffs.push({stat:'spd',delta:spdBonus,turnsLeft:A.purgeTurns});
-    log.push({c:tagA,t:`${s.icon} ${s.name} → HPを${hpCost}消費し、速度が${spdBonus}上昇(${A.purgeTurns}ターン)`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → HPを${hpCost}消費し、速度が${spdBonus}上昇(${A.purgeTurns}ターン)`});
   }
   else if(actId==='castOn'){
     const spdDrop=Math.round(A.spd*A.castOnSpdPct);
@@ -508,7 +529,15 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     A.def+=defBonus;
     A.statBuffs.push({stat:'spd',delta:-spdDrop,turnsLeft:A.castOnTurns});
     A.statBuffs.push({stat:'def',delta:defBonus,turnsLeft:A.castOnTurns});
-    log.push({c:tagA,t:`${s.icon} ${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
+  }
+  else if(actId==='soulStrike'){
+    A.hasSoulStrike = !A.hasSoulStrike;
+    if(A.hasSoulStrike){
+      log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 『魂の打撃』を付与。通常攻撃が最大HPの${Math.round(A.soulStrikePct*100)}%ダメージになる(以降のラウンドにも持ち越されます)`});
+    } else {
+      log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 『魂の打撃』を解除。通常攻撃が元のダメージに戻る(以降のラウンドにも持ち越されます)`});
+    }
   }
 }
 function fireTimed(P,O,cfg,log,tagP,tagO,R){
@@ -520,7 +549,7 @@ function fireTimed(P,O,cfg,log,tagP,tagO,R){
     if(k==='autoheal5'){
       const h=Math.round(P.maxHp*P.autohealPct);
       P.hp=Math.min(P.maxHp,P.hp+h);
-      log.push({c:tagP,t:`${s.icon} ${s.name}が発動 → ${h}回復`});
+      log.push({c:tagP,icon:s.icon,t:`${s.icon} ${s.name}が発動 → ${h}回復`});
     }
   }
 }
@@ -680,6 +709,7 @@ function hydrateMatch(m){
   m.hpBonus = m.hpBonus || {1:0,2:0};
   m.hpBonus[1] = m.hpBonus[1] || 0;
   m.hpBonus[2] = m.hpBonus[2] || 0;
+  m.soulStrike = m.soulStrike || {1:false,2:false};
   if(m.battle){
     hydrateFighter(m.battle.p1);
     hydrateFighter(m.battle.p2);
@@ -726,7 +756,8 @@ async function endRound(B, winner){
   const hpBonus = {...(S.hpBonus||{1:0,2:0})};
   if(B.p1.sleepBonusEarned>0){ hpBonus[1]=(hpBonus[1]||0)+B.p1.sleepBonusEarned; B.log.push({c:'d1',t:`${S.names[1]}: 睡眠の効果で最大HP+${B.p1.sleepBonusEarned}が以降も継続`}); }
   if(B.p2.sleepBonusEarned>0){ hpBonus[2]=(hpBonus[2]||0)+B.p2.sleepBonusEarned; B.log.push({c:'d2',t:`${S.names[2]}: 睡眠の効果で最大HP+${B.p2.sleepBonusEarned}が以降も継続`}); }
-  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w,hpBonus});
+  const soulStrike = {1:!!B.p1.hasSoulStrike, 2:!!B.p2.hasSoulStrike};
+  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w,hpBonus,soulStrike});
 }
 
 function noActiveLeft(f){ return (f.skills||[]).filter(k=>SKILLS[k].cat==='active' && !f.used[k]).length===0; }
@@ -826,7 +857,8 @@ async function startBattle(a,b){
   const r1=applyShop(a,S.wallets[1],S.loadout[1],cfg);
   const r2=applyShop(b,S.wallets[2],S.loadout[2],cfg);
   const hpBonus = S.hpBonus||{1:0,2:0};
-  const f1=mkFighter(r1.load,cfg,S.names[1],hpBonus[1]), f2=mkFighter(r2.load,cfg,S.names[2],hpBonus[2]);
+  const soulStrike = S.soulStrike||{1:false,2:false};
+  const f1=mkFighter(r1.load,cfg,S.names[1],hpBonus[1],soulStrike[1]), f2=mkFighter(r2.load,cfg,S.names[2],hpBonus[2],soulStrike[2]);
   const log=[];
   if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のため購入は無効`});
   if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のため購入は無効`});
@@ -886,7 +918,7 @@ async function createRoom(name,cfg){
   S={
     host:me,guest:null,names:{1:name,2:'プレイヤー2'},cfg,
     phase:'lobby',round:1,wins:{1:0,2:0},history:[],
-    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,hpBonus:{1:0,2:0},
+    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,hpBonus:{1:0,2:0},soulStrike:{1:false,2:false},
     wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
     loadout:{1:{skills:[]},2:{skills:[]}},
     battle:null
@@ -1137,6 +1169,7 @@ function renderLogHtml(log){
 }
 function fighterBadges(f){
   const badges=[];
+  if(f.hasSoulStrike) badges.push({t:`👻 魂の打撃 有効`, d:`通常攻撃が最大HPの${Math.round((f.soulStrikePct||0.05)*100)}%ダメージになっている(永続)`});
   if(f.tempDRTurns>0) badges.push({t:`被ダメ軽減 残り${f.tempDRTurns}T`, d:'受けるダメージ-10%'});
   if(f.reflectArmed) badges.push({t:'反射 待機中', d:'次に受けるダメージの30%を反射する'});
   if(f.nextAttackMulti) badges.push({t:'次の通常攻撃が5連撃', d:'攻撃スキルの効果'});
@@ -1166,7 +1199,10 @@ function fighterCard(n){
   const col=n===1?'var(--p1)':'var(--p2)';
   return `<div class="fighter ${mine?'me':''}">
     <div class="who ${n===1?'p1c':'p2c'}">${esc(f.nm)}${mine?'(あなた)':''}</div>
-    <div class="hpbar"><div style="width:${pct}%;background:${col}"></div></div>
+    <div class="hpbarWrap">
+      <div class="hpbar"><div style="width:${pct}%;background:${col}"></div></div>
+      <div class="hpFx" id="hpFx${n}"></div>
+    </div>
     <div class="hpnum num">${f.hp} / ${f.maxHp}</div>
     ${mine
       ? `<div class="miniStats num">攻 ${Math.round(f.atk)}　防 ${Math.round(f.def)}　速 ${Math.round(f.spd)}</div>
@@ -1235,6 +1271,30 @@ function renderBattle(st){
       act:{round:S.round,turn:B.turn,action}}, ()=>{ L.act=null; });
   };
   const lg=$('#log'); if(lg) lg.scrollTop=lg.scrollHeight;
+  triggerHpFx(B);
+}
+
+/* 直前の再描画以降に増えたログを見て、スキル発動アイコンをそのプレイヤーの
+   HPバー付近にポップ表示する。ラウンドが変わったら基準をリセットする。 */
+let fxLastRound=-1, fxLastLen=-1;
+function triggerHpFx(B){
+  if(S.round!==fxLastRound){ fxLastRound=S.round; fxLastLen=B.log.length; return; }
+  if(B.log.length<=fxLastLen){ return; }
+  for(let i=fxLastLen;i<B.log.length;i++){
+    const entry=B.log[i];
+    if(!entry.icon) continue;
+    const n = entry.c==='d1'?1:(entry.c==='d2'?2:null);
+    if(!n) continue;
+    const box=$('#hpFx'+n);
+    if(!box) continue;
+    const span=document.createElement('span');
+    span.className='hpFxIcon';
+    span.textContent=entry.icon;
+    box.appendChild(span);
+    span.addEventListener('animationend', ()=>span.remove());
+    setTimeout(()=>{ if(span.parentNode) span.remove(); }, 1500);
+  }
+  fxLastLen=B.log.length;
 }
 
 function renderRoundEnd(st){
@@ -1271,7 +1331,7 @@ function renderMatchEnd(st){
     resetLocal();
     if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
     await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
-      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,hpBonus:{1:0,2:0},
+      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,hpBonus:{1:0,2:0},soulStrike:{1:false,2:false},
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
       loadout:{1:{skills:[]},2:{skills:[]}}});
   };
