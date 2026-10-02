@@ -139,6 +139,11 @@ input,select{font:inherit;color:inherit}
 .log{max-height:280px;overflow-y:auto;border:1.5px solid var(--line);border-radius:5px;
   background:var(--paper);padding:10px 12px;font-size:13px}
 .log p{margin:0 0 4px}
+.log p.fresh{animation:logPop .6s ease}
+@keyframes logPop{
+  0%{background:color-mix(in srgb, var(--gold) 35%, transparent); border-radius:3px; padding-left:4px}
+  100%{background:transparent; padding-left:0}
+}
 .log .t{font-weight:900;color:var(--ink-soft);font-size:11px;margin-top:9px;border-top:1px dashed var(--line);padding-top:6px}
 .log .d1{color:var(--p1)} .log .d2{color:var(--p2)}
 
@@ -230,20 +235,20 @@ const FIREBASE_CONFIG = {
         'timed'  指定ターン終了時に自動発動(1戦闘1回)
         'econ'   戦闘とは無関係にptだけ動く(1回)          */
 const SKILLS = {
-  sleep:    {name:"睡眠",     cost:500,  cat:'active', d:"使用すると次のターンは行動できなくなる代わりに、最大HPが5%増える"},
-  dot:      {name:"持続攻撃", cost:1500, cat:'active', d:"相手に500ダメージを、3ターンの間毎ターン与え続ける"},
-  pierce:   {name:"貫通攻撃", cost:1450, cat:'active', d:"攻撃力の5倍の固定ダメージを与える。相手のスキルの効果を一切受けない"},
-  insurance:{name:"傷害保険", cost:350,  cat:'buff',   d:"所持しているラウンドの間、ダメージを受けるたびに(受けたダメージ×0.5)ptを獲得する(端数切り捨て)"},
-  econSkill:{name:"ス〇ーピース保険", cost:350, cat:'econ', d:"購入した次のラウンド開始時に600ptを獲得する"},
-  drGuard:  {name:"被ダメ軽減", cost:300, cat:'active', d:"使用したターンから3ターンの間、受けるダメージを10%軽減する"},
-  reflect:  {name:"反射",     cost:400,  cat:'active', d:"使用後、次に受けるダメージの30%を相手に返す(それで相手が死ぬことはない)"},
-  comboAtk: {name:"攻撃スキル", cost:400, cat:'active', d:"次の通常攻撃が、本来のダメージの30%分を与える5連撃になる"},
-  autoheal5:{name:"回復スキル", cost:300, cat:'timed', turn:5, d:"5ターン後に自動で発動。最大HPの20%を即時回復する"},
-  regenB:   {name:"回復スキル", cost:400, cat:'active', d:"使用した次のターン開始時、直前のターンに受けたダメージの40%(端数切り捨て)を回復する。使用者が戦闘不能なら無効"},
-  trade:    {name:"交換",     cost:650,  cat:'active', d:"自分か相手を選び、そのステータス(HP・攻撃力・防御力・速度)から2つを選んで、その値を2ターンの間入れ替える"},
-  evade:    {name:"回避",     cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
-  purge:    {name:"パージ",   cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
-  castOn:   {name:"キャストオン", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
+  sleep:    {name:"睡眠",     icon:"💤", cost:500,  cat:'active', d:"使用すると次のターンは行動できなくなる代わりに、最大HPが5%増える(この増加分は以降全ラウンドに持ち越される)"},
+  dot:      {name:"持続攻撃", icon:"☠️", cost:1500, cat:'active', d:"相手に500ダメージを、3ターンの間毎ターン与え続ける"},
+  pierce:   {name:"貫通攻撃", icon:"🏹", cost:1450, cat:'active', d:"攻撃力の5倍の固定ダメージを与える。相手のスキルの効果を一切受けない"},
+  insurance:{name:"傷害保険", icon:"🛡️", cost:350,  cat:'buff',   d:"所持しているラウンドの間、ダメージを受けるたびに(受けたダメージ×0.5)ptを獲得する(端数切り捨て)"},
+  econSkill:{name:"ス〇ーピース保険", icon:"💰", cost:350, cat:'econ', d:"購入した次のラウンド開始時に600ptを獲得する"},
+  drGuard:  {name:"被ダメ軽減", icon:"🧱", cost:300, cat:'active', d:"使用したターンから3ターンの間、受けるダメージを10%軽減する"},
+  reflect:  {name:"反射",     icon:"🪞", cost:400,  cat:'active', d:"使用後、次に受けるダメージの30%を相手に返す(それで相手が死ぬことはない)"},
+  comboAtk: {name:"攻撃スキル", icon:"⚔️", cost:400, cat:'active', d:"次の通常攻撃が、本来のダメージの30%分を与える5連撃になる"},
+  autoheal5:{name:"回復スキル", icon:"✨", cost:300, cat:'timed', turn:5, d:"5ターン後に自動で発動。最大HPの20%を即時回復する"},
+  regenB:   {name:"回復スキル", icon:"💚", cost:400, cat:'active', d:"使用した次のターン開始時、直前のターンに受けたダメージの40%(端数切り捨て)を回復する。使用者が戦闘不能なら無効"},
+  trade:    {name:"交換",     icon:"🔄", cost:650,  cat:'active', d:"自分か相手を選び、そのステータス(HP・攻撃力・防御力・速度)から2つを選んで、その値を2ターンの間入れ替える"},
+  evade:    {name:"回避",     icon:"💨", cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
+  purge:    {name:"パージ",   icon:"🔥", cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
+  castOn:   {name:"キャストオン", icon:"🪄", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
 };
 const SKILL_IDS = Object.keys(SKILLS);
 const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
@@ -312,7 +317,7 @@ function descFor(k, cfg){
   cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
   const p = key => paramOf(k,key,cfg);
   switch(k){
-    case 'sleep': return `使用すると次のターンは行動できなくなる代わりに、最大HPが${p('hpPct')}%増える`;
+    case 'sleep': return `使用すると次のターンは行動できなくなる代わりに、最大HPが${p('hpPct')}%増える(この増加分は以降全ラウンドに持ち越される)`;
     case 'dot': return `相手に${p('dmg')}ダメージを、${p('turns')}ターンの間毎ターン与え続ける`;
     case 'pierce': return `攻撃力の${p('mult')}倍の固定ダメージを与える。相手のスキルの効果を一切受けない`;
     case 'insurance': return `所持しているラウンドの間、ダメージを受けるたびに受けたダメージの${p('rate')}%をptとして獲得する(端数切り捨て)`;
@@ -345,11 +350,12 @@ function walletSpend(w,amt){
 function walletExpire(w,round,life){ return (w||[]).filter(e=>round - e.round < life); }
 
 /* ============ 戦闘エンジン(ホストのみ実行) ============ */
-function mkFighter(load,cfg,nm){
+function mkFighter(load,cfg,nm,extraMaxHp){
   const sk=load.skills||[];
+  extraMaxHp = extraMaxHp||0;
   return {
-    nm, maxHp:cfg.baseHp, hp:cfg.baseHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
-    skills:sk, used:{}, fired:{},
+    nm, maxHp:cfg.baseHp+extraMaxHp, hp:cfg.baseHp+extraMaxHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
+    skills:sk, used:{}, fired:{}, sleepBonusEarned:0,
     dmgTakenThisTurn:0, dmgTakenLastTurn:0,
     sleepSkip:false, pendingRegen:null, reflectArmed:false, nextAttackMulti:null,
     tempDRTurns:0, dots:[], dodgeUsed:false, statBuffs:[],
@@ -441,31 +447,32 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     A.sleepSkip=true;
     const inc=Math.round(A.maxHp*A.sleepHpPct);
     A.maxHp+=inc; A.hp=Math.min(A.maxHp,A.hp+inc);
-    log.push({c:tagA,t:`${s.name} → 最大HPが${inc}増加。次のターンは行動不能になる`});
+    A.sleepBonusEarned=(A.sleepBonusEarned||0)+inc; /* 以降のラウンドにも永続で持ち越す分 */
+    log.push({c:tagA,t:`${s.icon} ${s.name} → 最大HPが${inc}増加(以降のラウンドにも持ち越されます)。次のターンは行動不能になる`});
   }
   else if(actId==='dot'){
     D.dots.push({dmg:A.dotDmg,turnsLeft:A.dotTurns,srcTag:tagA});
-    log.push({c:tagA,t:`${s.name} → ${A.dotTurns}ターンの間、毎ターン${A.dotDmg}ダメージ`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → ${A.dotTurns}ターンの間、毎ターン${A.dotDmg}ダメージ`});
   }
   else if(actId==='pierce'){
-    log.push({c:tagA,t:`${s.name}!`});
+    log.push({c:tagA,t:`${s.icon} ${s.name}!`});
     strike(A,D,cfg,1,log,tagA,tagD,R,{fixedDmg:Math.round(A.atk*A.pierceMult), bypassDefenderSkills:true});
   }
   else if(actId==='drGuard'){
     A.tempDRTurns=A.drGuardTurns;
-    log.push({c:tagA,t:`${s.name} → ${A.drGuardTurns}ターンの間、被ダメージ-${Math.round(A.tempDRPct*100)}%`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → ${A.drGuardTurns}ターンの間、被ダメージ-${Math.round(A.tempDRPct*100)}%`});
   }
   else if(actId==='reflect'){
     A.reflectArmed=true;
-    log.push({c:tagA,t:`${s.name} → 次に受けるダメージの${Math.round(A.reflectPct*100)}%を反射`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → 次に受けるダメージの${Math.round(A.reflectPct*100)}%を反射`});
   }
   else if(actId==='comboAtk'){
     A.nextAttackMulti={hits:A.comboHits,pct:A.comboPct};
-    log.push({c:tagA,t:`${s.name} → 次の通常攻撃が${A.comboHits}連撃になる`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → 次の通常攻撃が${A.comboHits}連撃になる`});
   }
   else if(actId==='regenB'){
     A.pendingRegen = A.__turn+1;
-    log.push({c:tagA,t:`${s.name} → 次のターン開始時に回復する`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → 次のターン開始時に回復する`});
   }
   else if(actId==='trade'){
     const parts=(act||'').split(':');
@@ -481,9 +488,9 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
       target[k1]=v2; target[k2]=v1;
       target.tradeApplied={turnsLeft:A.tradeTurns, keys:[k1,k2], values:[v1,v2]};
       const who = target===A ? '自分' : '相手';
-      log.push({c:tagA,t:`${s.name} → ${who}の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた(${A.tradeTurns}ターン)`});
+      log.push({c:tagA,t:`${s.icon} ${s.name} → ${who}の${STAT_LABEL[k1]}と${STAT_LABEL[k2]}を入れ替えた(${A.tradeTurns}ターン)`});
     } else {
-      log.push({c:tagA,t:`${s.name}は不正な指定のため発動しなかった`});
+      log.push({c:tagA,t:`${s.icon} ${s.name}は不正な指定のため発動しなかった`});
     }
   }
   else if(actId==='purge'){
@@ -492,7 +499,7 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     const spdBonus=Math.round(A.spd*A.purgeSpdPct);
     A.spd+=spdBonus;
     A.statBuffs.push({stat:'spd',delta:spdBonus,turnsLeft:A.purgeTurns});
-    log.push({c:tagA,t:`${s.name} → HPを${hpCost}消費し、速度が${spdBonus}上昇(${A.purgeTurns}ターン)`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → HPを${hpCost}消費し、速度が${spdBonus}上昇(${A.purgeTurns}ターン)`});
   }
   else if(actId==='castOn'){
     const spdDrop=Math.round(A.spd*A.castOnSpdPct);
@@ -501,7 +508,7 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     A.def+=defBonus;
     A.statBuffs.push({stat:'spd',delta:-spdDrop,turnsLeft:A.castOnTurns});
     A.statBuffs.push({stat:'def',delta:defBonus,turnsLeft:A.castOnTurns});
-    log.push({c:tagA,t:`${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
+    log.push({c:tagA,t:`${s.icon} ${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
   }
 }
 function fireTimed(P,O,cfg,log,tagP,tagO,R){
@@ -513,7 +520,7 @@ function fireTimed(P,O,cfg,log,tagP,tagO,R){
     if(k==='autoheal5'){
       const h=Math.round(P.maxHp*P.autohealPct);
       P.hp=Math.min(P.maxHp,P.hp+h);
-      log.push({c:tagP,t:`${s.name}が発動 → ${h}回復`});
+      log.push({c:tagP,t:`${s.icon} ${s.name}が発動 → ${h}回復`});
     }
   }
 }
@@ -670,6 +677,9 @@ function hydrateMatch(m){
   m.loadout[2].skills = m.loadout[2].skills || [];
   m.matchEndVotes = m.matchEndVotes || {1:false,2:false};
   m.matchId = m.matchId || 1;
+  m.hpBonus = m.hpBonus || {1:0,2:0};
+  m.hpBonus[1] = m.hpBonus[1] || 0;
+  m.hpBonus[2] = m.hpBonus[2] || 0;
   if(m.battle){
     hydrateFighter(m.battle.p1);
     hydrateFighter(m.battle.p2);
@@ -713,7 +723,10 @@ async function endRound(B, winner){
   }
   if(B.p1.insuranceGain>0){ w[1]=[...w[1],{round:nextR,amt:B.p1.insuranceGain}]; B.log.push({c:'d1',t:`${S.names[1]}: 傷害保険で合計${B.p1.insuranceGain}pt獲得`}); }
   if(B.p2.insuranceGain>0){ w[2]=[...w[2],{round:nextR,amt:B.p2.insuranceGain}]; B.log.push({c:'d2',t:`${S.names[2]}: 傷害保険で合計${B.p2.insuranceGain}pt獲得`}); }
-  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w});
+  const hpBonus = {...(S.hpBonus||{1:0,2:0})};
+  if(B.p1.sleepBonusEarned>0){ hpBonus[1]=(hpBonus[1]||0)+B.p1.sleepBonusEarned; B.log.push({c:'d1',t:`${S.names[1]}: 睡眠の効果で最大HP+${B.p1.sleepBonusEarned}が以降も継続`}); }
+  if(B.p2.sleepBonusEarned>0){ hpBonus[2]=(hpBonus[2]||0)+B.p2.sleepBonusEarned; B.log.push({c:'d2',t:`${S.names[2]}: 睡眠の効果で最大HP+${B.p2.sleepBonusEarned}が以降も継続`}); }
+  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w,hpBonus});
 }
 
 function noActiveLeft(f){ return (f.skills||[]).filter(k=>SKILLS[k].cat==='active' && !f.used[k]).length===0; }
@@ -812,7 +825,8 @@ async function startBattle(a,b){
   const cfg=S.cfg;
   const r1=applyShop(a,S.wallets[1],S.loadout[1],cfg);
   const r2=applyShop(b,S.wallets[2],S.loadout[2],cfg);
-  const f1=mkFighter(r1.load,cfg,S.names[1]), f2=mkFighter(r2.load,cfg,S.names[2]);
+  const hpBonus = S.hpBonus||{1:0,2:0};
+  const f1=mkFighter(r1.load,cfg,S.names[1],hpBonus[1]), f2=mkFighter(r2.load,cfg,S.names[2],hpBonus[2]);
   const log=[];
   if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のため購入は無効`});
   if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のため購入は無効`});
@@ -872,7 +886,7 @@ async function createRoom(name,cfg){
   S={
     host:me,guest:null,names:{1:name,2:'プレイヤー2'},cfg,
     phase:'lobby',round:1,wins:{1:0,2:0},history:[],
-    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,
+    matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,hpBonus:{1:0,2:0},
     wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
     loadout:{1:{skills:[]},2:{skills:[]}},
     battle:null
@@ -1016,7 +1030,7 @@ function skillCard(k,owned,on,afford){
   else if(on){ btnLabel='取り消す'; btnDisabled=false; }
   else { btnLabel=`${cost}ptで購入`; btnDisabled=!afford; }
   return `<div class="skill ${on?'on':''}">
-    <div class="h"><span class="nm">${s.name}</span><span class="cost num">${owned?'所持済':cost+'pt'}</span></div>
+    <div class="h"><span class="nm">${s.icon||''} ${s.name}</span><span class="cost num">${owned?'所持済':cost+'pt'}</span></div>
     <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
     <span class="d">${descFor(k)}</span>
     <button class="btn ${on?'ghost':'sm'}" style="margin-top:4px;align-self:stretch;justify-content:center;display:flex" data-buyskill="${k}" ${btnDisabled?'disabled':''}>${btnLabel}</button>
@@ -1048,7 +1062,7 @@ function renderShop(st){
       ? `<div class="shop">${ownedList.map(k=>{
           const s=SKILLS[k];
           return `<div class="skill on" style="cursor:default">
-            <div class="h"><span class="nm">${s.name}</span></div>
+            <div class="h"><span class="nm">${s.icon||''} ${s.name}</span></div>
             <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
             <span class="d">${descFor(k)}</span>
           </div>`;
@@ -1078,7 +1092,7 @@ function renderShop(st){
       ? `<div class="shop">${L.skills.map(k=>{
           const s=SKILLS[k];
           return `<div class="skill on">
-            <div class="h"><span class="nm">${s.name}</span><span class="cost num">${costOf(k)}pt</span></div>
+            <div class="h"><span class="nm">${s.icon||''} ${s.name}</span><span class="cost num">${costOf(k)}pt</span></div>
             <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
             <span class="d">${descFor(k)}</span>
           </div>`;
@@ -1114,6 +1128,13 @@ function renderShop(st){
   };
 }
 
+function renderLogHtml(log){
+  let startIdx=0;
+  for(let i=log.length-1;i>=0;i--){
+    if(/^ターン \d+$/.test(log[i].t)){ startIdx=i; break; }
+  }
+  return log.map((l,i)=>`<p class="${l.c}${i>=startIdx?' fresh':''}">${esc(l.t)}</p>`).join('');
+}
 function fighterBadges(f){
   const badges=[];
   if(f.tempDRTurns>0) badges.push({t:`被ダメ軽減 残り${f.tempDRTurns}T`, d:'受けるダメージ-10%'});
@@ -1132,9 +1153,9 @@ function fighterBadges(f){
   });
   (f.skills||[]).forEach(k=>{
     const s=SKILLS[k];
-    if(s.cat==='timed') badges.push({t:f.fired[k]?`${s.name}(発動済)`:`${s.name}(${f.autohealTurn}T後)`,d:descFor(k)});
-    else if(s.cat==='active') badges.push({t:f.used[k]?`${s.name}(使用済)`:s.name,d:descFor(k)});
-    else badges.push({t:s.name,d:descFor(k)});
+    if(s.cat==='timed') badges.push({t:f.fired[k]?`${s.icon} ${s.name}(発動済)`:`${s.icon} ${s.name}(${f.autohealTurn}T後)`,d:descFor(k)});
+    else if(s.cat==='active') badges.push({t:f.used[k]?`${s.icon} ${s.name}(使用済)`:`${s.icon} ${s.name}`,d:descFor(k)});
+    else badges.push({t:`${s.icon} ${s.name}`,d:descFor(k)});
   });
   return badges;
 }
@@ -1165,7 +1186,7 @@ function renderBattle(st){
     <div class="field2">${fighterCard(1)}${fighterCard(2)}</div>
     <div class="acts">
       ${acts.filter(k=>k!=='trade').map(k=>`<button class="btn ${k==='attack'?'':'ghost'}" data-act="${k}" ${waiting?'disabled':''}>
-        <span class="actName">${k==='attack'?'通常攻撃':SKILLS[k].name}</span>
+        <span class="actName">${k==='attack'?'⚔️ 通常攻撃':`${SKILLS[k].icon||''} ${SKILLS[k].name}`}</span>
         <span class="actD">${k==='attack'?(mine.nextAttackMulti?`攻撃スキルの効果で${mine.nextAttackMulti.hits}連撃になる`:'相手に通常ダメージを与える'):descFor(k)}</span>
       </button>`).join('')}
     </div>
@@ -1186,7 +1207,7 @@ function renderBattle(st){
   </div>
   <div class="panel">
     <h2>戦闘ログ</h2>
-    <div class="log" id="log">${B.log.map(l=>`<p class="${l.c}">${esc(l.t)}</p>`).join('')}</div>
+    <div class="log" id="log">${renderLogHtml(B.log)}</div>
   </div>`;
   st.querySelectorAll('[data-act]').forEach(b=>b.onclick=async()=>{
     L.act={turn:B.turn,action:b.dataset.act}; render();
@@ -1230,7 +1251,7 @@ function renderRoundEnd(st){
     </div>
   </div>
   <div class="panel"><h2>戦闘ログ</h2>
-    <div class="log">${B.log.map(l=>`<p class="${l.c}">${esc(l.t)}</p>`).join('')}</div>
+    <div class="log">${renderLogHtml(B.log)}</div>
   </div>`;
   const nb=$('#nextBtn'); if(nb) nb.onclick=()=>{nb.disabled=true;nextRound()};
   if(role===2) resetLocal();
@@ -1250,7 +1271,7 @@ function renderMatchEnd(st){
     resetLocal();
     if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
     await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
-      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,
+      matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,hpBonus:{1:0,2:0},
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
       loadout:{1:{skills:[]},2:{skills:[]}}});
   };
@@ -1371,12 +1392,12 @@ function renderHelpBody(){
     <li>双方が賛成すると、残りのラウンドを行わずにその時点で試合を終了できる(勝敗はそこまでの勝利数で決まる)</li>
     <li>投票の賛成/反対(四角が灯っているかどうか)はお互いに見える。所持スキルや戦況とは違い、ここは非公開ではない</li>
   </ul>
-  <h3>スキル一覧(全${SKILL_IDS.length}種・毎ラウンドこの中からランダム3枠がショップに並ぶ)</h3>
+  <h3>スキル一覧(全${SKILL_IDS.length}種・毎ラウンドこの中からランダム3枠がショップに並ぶ・必要pt順)</h3>
   <div class="shop">
-    ${SKILL_IDS.map(k=>{
+    ${SKILL_IDS.slice().sort((a,b)=>costOf(a,cfg)-costOf(b,cfg)).map(k=>{
       const s=SKILLS[k];
       return `<div class="skill" style="cursor:default">
-        <div class="h"><span class="nm">${esc(s.name)}</span><span class="cost num">${costOf(k,cfg)}pt</span></div>
+        <div class="h"><span class="nm">${s.icon||''} ${esc(s.name)}</span><span class="cost num">${costOf(k,cfg)}pt</span></div>
         <span class="tag ${tagClsFor(s)}">${tagFor(k,cfg)}</span>
         <span class="d">${esc(descFor(k,cfg))}</span>
       </div>`;
