@@ -101,10 +101,16 @@ input,select{font:inherit;color:inherit}
 .chip.warn{border-color:var(--p1);color:var(--p1);font-weight:700}
 
 .stats{display:grid;gap:8px}
-.stat{display:grid;grid-template-columns:52px 1fr;gap:12px;align-items:center;
+.stat{display:grid;grid-template-columns:52px 1fr auto;gap:12px;align-items:center;
   border-bottom:1px dashed var(--line);padding-bottom:8px}
 .stat .nm{font-weight:700;font-size:13px;color:var(--ink-soft)}
 .stat .val{font-size:16px;font-weight:700}
+.stat .val em{font-style:normal;color:var(--ok);font-weight:700;font-size:13px}
+.stat .sub{font-size:11px;color:var(--ink-soft);margin-top:2px}
+.steps{display:flex;gap:4px}
+.step{border:1.5px solid var(--line);background:var(--paper);border-radius:4px;
+  padding:5px 8px;font-size:12px;font-weight:700;min-width:42px}
+.step:disabled{opacity:.3;cursor:not-allowed}
 
 .shop{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 @media(max-width:720px){.shop{grid-template-columns:1fr}}
@@ -269,6 +275,8 @@ const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
 
 const DEFAULT_CFG = {
   rounds:7, startPt:1000, winPt:800, losePt:1000, ptLife:2,
+  startCoin:1000, coinPerRound:1000, coinLife:2, coinTierSize:100,
+  hpPerCoin:10, atkPerCoin:1, defPerCoin:1, spdPerCoin:1,
   baseHp:5000, baseAtk:300, baseDef:100, baseSpd:100,
   formula:"ratio", minDmg:1, maxTurns:30, dblThr:2, rerollBase:100,
   resetEachRound:true
@@ -355,6 +363,25 @@ function toast(msg){
   document.body.appendChild(el);setTimeout(()=>el.remove(),3200);
 }
 
+/* ============ ステータス購入の階段式コスト ============
+   coinTierSize単位ごとに1コイン/ユニットずつ単価が上がる。
+   買った量の「合計」から毎回計算し直す純粋関数にすることで、
+   プレビュー表示と実際の課金を常に同じ値に保つ。 */
+function coinCostFor(units, cfg){
+  const tierSize = (cfg&&cfg.coinTierSize) || 100;
+  units = Math.max(0, units|0);
+  let cost=0, pos=0, remaining=units;
+  while(remaining>0){
+    const tier = Math.floor(pos/tierSize);
+    const price = tier+1;
+    const roomInTier = tierSize - (pos % tierSize);
+    const take = Math.min(remaining, roomInTier);
+    cost += take*price;
+    remaining -= take; pos += take;
+  }
+  return cost;
+}
+
 /* ============ 所持pt(先入れ先出し + 有効期限) ============ */
 function walletTotal(w){return (w||[]).reduce((s,e)=>s+e.amt,0)}
 function walletSpend(w,amt){
@@ -369,8 +396,10 @@ function walletExpire(w,round,life){ return (w||[]).filter(e=>round - e.round < 
 function mkFighter(load,cfg,nm,extraMaxHp,hasSoulStrike){
   const sk=load.skills||[];
   extraMaxHp = extraMaxHp||0;
+  const bHp=load.hp||0, bAtk=load.atk||0, bDef=load.def||0, bSpd=load.spd||0;
   return {
-    nm, maxHp:cfg.baseHp+extraMaxHp, hp:cfg.baseHp+extraMaxHp, atk:cfg.baseAtk, def:cfg.baseDef, spd:cfg.baseSpd,
+    nm, maxHp:cfg.baseHp+extraMaxHp+bHp, hp:cfg.baseHp+extraMaxHp+bHp,
+    atk:cfg.baseAtk+bAtk, def:cfg.baseDef+bDef, spd:cfg.baseSpd+bSpd,
     skills:sk, used:{}, fired:{}, sleepBonusEarned:0,
     hasSoulStrike: !!hasSoulStrike,
     soulStrikePct: paramOf('soulStrike','hpPct',cfg)/100,
@@ -636,7 +665,7 @@ function resolveTurn(B,a1,a2,cfg,seed){
 
 /* ============ 通信・状態 ============ */
 let db=null, S=null, code=null, me=null, role=0, unsubs=[], I1=null, I2=null, busy=false, busySince=0;
-let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null};
+let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null,buy:{hp:0,atk:0,def:0,spd:0}};
 let lobbyDrawn=false;
 
 function clientId(){
@@ -645,7 +674,7 @@ function clientId(){
   return id;
 }
 function myName(){ return localStorage.getItem('bsim_name') || ''; }
-function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null}; }
+function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null,buy:{hp:0,atk:0,def:0,spd:0}}; }
 
 async function setState(patch){
   S = {...S, ...patch};
@@ -699,6 +728,9 @@ function hydrateMatch(m){
   m.wallets = m.wallets || {};
   m.wallets[1] = m.wallets[1] || [];
   m.wallets[2] = m.wallets[2] || [];
+  m.coins = m.coins || {};
+  m.coins[1] = m.coins[1] || [];
+  m.coins[2] = m.coins[2] || [];
   m.loadout = m.loadout || {};
   m.loadout[1] = m.loadout[1] || {skills:[]};
   m.loadout[1].skills = m.loadout[1].skills || [];
@@ -757,7 +789,8 @@ async function endRound(B, winner){
   if(B.p1.sleepBonusEarned>0){ hpBonus[1]=(hpBonus[1]||0)+B.p1.sleepBonusEarned; B.log.push({c:'d1',t:`${S.names[1]}: 睡眠の効果で最大HP+${B.p1.sleepBonusEarned}が以降も継続`}); }
   if(B.p2.sleepBonusEarned>0){ hpBonus[2]=(hpBonus[2]||0)+B.p2.sleepBonusEarned; B.log.push({c:'d2',t:`${S.names[2]}: 睡眠の効果で最大HP+${B.p2.sleepBonusEarned}が以降も継続`}); }
   const soulStrike = {1:!!B.p1.hasSoulStrike, 2:!!B.p2.hasSoulStrike};
-  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w,hpBonus,soulStrike});
+  const coins = {1:[...S.coins[1],{round:nextR,amt:cfg.coinPerRound}], 2:[...S.coins[2],{round:nextR,amt:cfg.coinPerRound}]};
+  await setState({phase:'roundEnd',battle:B,wins,history:hist,wallets:w,hpBonus,soulStrike,coins});
 }
 
 function noActiveLeft(f){ return (f.skills||[]).filter(k=>SKILLS[k].cat==='active' && !f.used[k]).length===0; }
@@ -852,16 +885,38 @@ function applyShop(intent, wallet, base, cfg){
   return {wallet: walletSpend(wallet,spend), load, ok:true, newlyBought:skills};
 }
 
+/* pt/スキルとは別建てのコイン経済。base(前回のloadout)に積み上がっている
+   ステータス購入分を引き継ぎつつ、今回コインで新たに買った分を加算する。 */
+function applyCoinShop(intent, coinWallet, base, cfg){
+  const buy = intent.buy || {hp:0,atk:0,def:0,spd:0};
+  const spend = coinCostFor(buy.hp,cfg)+coinCostFor(buy.atk,cfg)+coinCostFor(buy.def,cfg)+coinCostFor(buy.spd,cfg);
+  const have = walletTotal(coinWallet);
+  const carried = {hp:base.hp||0, atk:base.atk||0, def:base.def||0, spd:base.spd||0};
+  if(spend>have) return {coinWallet, statBonus:carried, ok:false};
+  const statBonus = {
+    hp: carried.hp + (buy.hp|0)*cfg.hpPerCoin,
+    atk: carried.atk + (buy.atk|0)*cfg.atkPerCoin,
+    def: carried.def + (buy.def|0)*cfg.defPerCoin,
+    spd: carried.spd + (buy.spd|0)*cfg.spdPerCoin,
+  };
+  return {coinWallet: walletSpend(coinWallet,spend), statBonus, ok:true};
+}
+
 async function startBattle(a,b){
   const cfg=S.cfg;
   const r1=applyShop(a,S.wallets[1],S.loadout[1],cfg);
   const r2=applyShop(b,S.wallets[2],S.loadout[2],cfg);
+  const rc1=applyCoinShop(a,S.coins[1],S.loadout[1],cfg);
+  const rc2=applyCoinShop(b,S.coins[2],S.loadout[2],cfg);
+  const load1={...r1.load, ...rc1.statBonus}, load2={...r2.load, ...rc2.statBonus};
   const hpBonus = S.hpBonus||{1:0,2:0};
   const soulStrike = S.soulStrike||{1:false,2:false};
-  const f1=mkFighter(r1.load,cfg,S.names[1],hpBonus[1],soulStrike[1]), f2=mkFighter(r2.load,cfg,S.names[2],hpBonus[2],soulStrike[2]);
+  const f1=mkFighter(load1,cfg,S.names[1],hpBonus[1],soulStrike[1]), f2=mkFighter(load2,cfg,S.names[2],hpBonus[2],soulStrike[2]);
   const log=[];
-  if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のため購入は無効`});
-  if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のため購入は無効`});
+  if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のためスキル購入は無効`});
+  if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のためスキル購入は無効`});
+  if(!rc1.ok) log.push({c:'t',t:`${S.names[1]}: コイン不足のためステータス購入は無効`});
+  if(!rc2.ok) log.push({c:'t',t:`${S.names[2]}: コイン不足のためステータス購入は無効`});
   const nextR=S.round+1;
   let w1=r1.wallet, w2=r2.wallet;
   const econBonus = paramOf('econSkill','bonus',cfg);
@@ -872,7 +927,8 @@ async function startBattle(a,b){
   await setState({
     phase:'battle',
     wallets:{1:w1,2:w2},
-    loadout:{1:r1.load,2:r2.load},
+    coins:{1:rc1.coinWallet,2:rc2.coinWallet},
+    loadout:{1:load1,2:load2},
     battle:{turn:1,p1:f1,p2:f2,log,over:false,winner:0,roundFirst}
   });
 }
@@ -903,11 +959,12 @@ async function nextRound(){
   if(S.round>=cfg.rounds){ await safeSetState({phase:'matchEnd'}); return; }
   const nextR=S.round+1;
   const w={1:walletExpire(S.wallets[1],nextR,cfg.ptLife),2:walletExpire(S.wallets[2],nextR,cfg.ptLife)};
-  const blank={skills:[]};
+  const coins={1:walletExpire(S.coins[1],nextR,cfg.coinLife),2:walletExpire(S.coins[2],nextR,cfg.coinLife)};
+  const blank={skills:[],hp:0,atk:0,def:0,spd:0};
   const load=cfg.resetEachRound?{1:{...blank},2:{...blank}}:S.loadout;
   resetLocal();
   if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
-  await safeSetState({phase:'shop',round:nextR,wallets:w,loadout:load,battle:null});
+  await safeSetState({phase:'shop',round:nextR,wallets:w,coins,loadout:load,battle:null});
 }
 
 /* ============ ルーム作成/参加 ============ */
@@ -920,7 +977,8 @@ async function createRoom(name,cfg){
     phase:'lobby',round:1,wins:{1:0,2:0},history:[],
     matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,hpBonus:{1:0,2:0},soulStrike:{1:false,2:false},
     wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
-    loadout:{1:{skills:[]},2:{skills:[]}},
+    coins:{1:[{round:1,amt:cfg.startCoin}],2:[{round:1,amt:cfg.startCoin}]},
+    loadout:{1:{skills:[],hp:0,atk:0,def:0,spd:0},2:{skills:[],hp:0,atk:0,def:0,spd:0}},
     battle:null
   };
   await db.doc('matches/'+code).set(S);
@@ -941,6 +999,11 @@ async function joinRoom(name,c){
 /* ============ 画面 ============ */
 function spentTotal(){ return L.skills.reduce((s,k)=>s+costOf(k),0) + L.rerollSpent; }
 function availPt(){ return walletTotal(S.wallets[role]) - spentTotal(); }
+function spentCoinTotal(){
+  const cfg=S&&S.cfg;
+  return coinCostFor(L.buy.hp,cfg)+coinCostFor(L.buy.atk,cfg)+coinCostFor(L.buy.def,cfg)+coinCostFor(L.buy.spd,cfg);
+}
+function availCoin(){ return walletTotal(S.coins[role]) - spentCoinTotal(); }
 
 function renderTrack(){
   if(!S){$('#track').innerHTML='';return}
@@ -1069,22 +1132,61 @@ function skillCard(k,owned,on,afford){
   </div>`;
 }
 
+function coinStatLine(key,label,baseVal,perCoin){
+  const cfg=S.cfg;
+  const units=L.buy[key];
+  const add=units*perCoin;
+  const cost=coinCostFor(units,cfg);
+  const avail=availCoin();
+  const tierSize=cfg.coinTierSize||100;
+  const curPrice=Math.floor(units/tierSize)+1; /* 次の1ユニットの単価 */
+  const costOf10=coinCostFor(units+10,cfg)-cost;
+  const costOf100=coinCostFor(units+100,cfg)-cost;
+  return `<div class="stat">
+    <div class="nm">${label}</div>
+    <div>
+      <div class="val num">${baseVal+add}${add?` <em>+${add}</em>`:''}</div>
+      <div class="sub num">${units}ユニット購入(${cost}コイン) / 現在単価 ${curPrice}コイン/ユニット</div>
+    </div>
+    <div class="steps">
+      <button class="step" data-buy="${key}" data-amt="-100" ${units<100?'disabled':''}>-100</button>
+      <button class="step" data-buy="${key}" data-amt="-10" ${units<10?'disabled':''}>-10</button>
+      <button class="step" data-buy="${key}" data-amt="10" ${avail<costOf10?'disabled':''}>+10</button>
+      <button class="step" data-buy="${key}" data-amt="100" ${avail<costOf100?'disabled':''}>+100</button>
+    </div>
+  </div>`;
+}
 function renderShop(st){
   const cfg=S.cfg, base=S.loadout[role];
   const opts=shopFor(code,S.round,role,L.rerolls);
   const nextReroll=cfg.rerollBase*(L.rerolls+1);
   const wallet=S.wallets[role];
+  const coinWallet=S.coins[role];
   const oppReady = role===1 ? !!(I2&&I2.shop&&I2.shop.round===S.round) : false;
   const ownedList=(base.skills||[]);
   st.innerHTML=`
   <div class="panel">
     <h2>ラウンド ${S.round} ・ 編成 <small>勝敗 ${S.wins[1]} - ${S.wins[2]}</small></h2>
     <div class="wallet">
-      <span class="big num">${availPt()}</span><span class="muted">pt 使用可能</span>
+      <span class="big num">${availPt()}</span><span class="muted">pt 使用可能(スキル購入専用)</span>
       ${wallet.map(e=>`<span class="chip num${S.round-e.round===cfg.ptLife-1?' warn':''}">R${e.round}獲得 ${e.amt}pt${S.round-e.round===cfg.ptLife-1?' ・今R限り':''}</span>`).join('')}
+    </div>
+    <div class="wallet" style="margin-top:8px">
+      <span class="big num" style="color:var(--ok)">${availCoin()}</span><span class="muted">コイン 使用可能(ステータス購入専用)</span>
+      ${coinWallet.map(e=>`<span class="chip num${S.round-e.round===cfg.coinLife-1?' warn':''}">R${e.round}獲得 ${e.amt}コイン${S.round-e.round===cfg.coinLife-1?' ・今R限り':''}</span>`).join('')}
     </div>
     <div class="stats" style="margin-top:10px">
       <div class="stat"><div class="nm">基礎値</div><div class="val num">HP${cfg.baseHp}　攻${cfg.baseAtk}　防${cfg.baseDef}　速${cfg.baseSpd}</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>ステータス購入 <small>コインで直接ステータスを強化(スキルとは別枠)</small></h2>
+    <div class="stats">
+      ${coinStatLine('hp','HP',cfg.baseHp+(base.hp||0),cfg.hpPerCoin)}
+      ${coinStatLine('atk','攻撃力',cfg.baseAtk+(base.atk||0),cfg.atkPerCoin)}
+      ${coinStatLine('def','防御力',cfg.baseDef+(base.def||0),cfg.defPerCoin)}
+      ${coinStatLine('spd','速度',cfg.baseSpd+(base.spd||0),cfg.spdPerCoin)}
     </div>
   </div>
 
@@ -1147,6 +1249,14 @@ function renderShop(st){
     L.skills = L.skills.includes(k) ? L.skills.filter(x=>x!==k) : [...L.skills,k];
     render();
   });
+  st.querySelectorAll('[data-buy]').forEach(b=>b.onclick=()=>{
+    if(L.ready)return;
+    const k=b.dataset.buy, amt=parseInt(b.dataset.amt,10);
+    /* 単価が逓増するため上限はボタンのdisabled判定( render時の費用計算)で
+       担保している。ここでは0未満にだけならないようにする */
+    L.buy[k]=Math.max(0, L.buy[k]+amt);
+    render();
+  });
 
   const rb=$('#rerollBtn'); if(rb) rb.onclick=()=>{
     if(L.ready)return;
@@ -1156,7 +1266,7 @@ function renderShop(st){
   $('#readyBtn').onclick=async()=>{
     L.ready=true; render();
     await safeIntentUpdate({clientId:me,name:S.names[role],
-      shop:{round:S.round,skills:[...L.skills],rerolls:L.rerolls}}, ()=>{ L.ready=false; });
+      shop:{round:S.round,skills:[...L.skills],rerolls:L.rerolls,buy:{...L.buy}}}, ()=>{ L.ready=false; });
   };
 }
 
@@ -1333,7 +1443,8 @@ function renderMatchEnd(st){
     await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
       matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,hpBonus:{1:0,2:0},soulStrike:{1:false,2:false},
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
-      loadout:{1:{skills:[]},2:{skills:[]}}});
+      coins:{1:[{round:1,amt:S.cfg.startCoin}],2:[{round:1,amt:S.cfg.startCoin}]},
+      loadout:{1:{skills:[],hp:0,atk:0,def:0,spd:0},2:{skills:[],hp:0,atk:0,def:0,spd:0}}});
   };
 }
 
@@ -1365,6 +1476,10 @@ function renderEntry(){
       ${f('baseDef','初期防御力')}${f('losePt','敗北時の獲得pt')}
       ${f('baseSpd','初期速度')}${f('ptLife','ptの有効ラウンド数')}
       ${f('rerollBase','ショップ更新の基本費用')}${f('dblThr','追撃に必要な速度倍率(0で無効)','0.1')}
+      ${f('startCoin','初期コイン')}${f('coinPerRound','毎ラウンド配布されるコイン')}
+      ${f('coinLife','コインの有効ラウンド数')}${f('coinTierSize','単価が上がる購入単位(ユニット)')}
+      ${f('hpPerCoin','1ユニットあたりのHP')}${f('atkPerCoin','1ユニットあたりの攻撃力')}
+      ${f('defPerCoin','1ユニットあたりの防御力')}${f('spdPerCoin','1ユニットあたりの速度')}
       <div class="field"><label>ダメージの計算方法</label>
         <select id="cfg_formula">
           <option value="ratio">割合式 ─ 攻×攻÷(攻+防)</option>
@@ -1373,7 +1488,7 @@ function renderEntry(){
       <div class="field"><label>ラウンドごとにスキル所持をリセット</label>
         <select id="cfg_resetEachRound"><option value="1">リセットする</option><option value="0">持ち越す</option></select></div>
     </div>
-    <p class="muted">ptはすべてスキル購入に使います。ステータスの直接強化はありません。基礎値は左のここで変えられます。</p>
+    <p class="muted">ptはスキル購入専用、コインはステータス購入専用で、互いに流用できません。コインでの購入は買うほど単価が上がります(100ユニットごとに+1コイン/ユニット)。基礎値は左のここで変えられます。</p>
   </div>
   <div class="panel">
     <h2>スキルの必要pt・効果値 <small>デモ用にすべて変更できます(空欄は初期値のまま)</small></h2>
@@ -1401,6 +1516,8 @@ function renderEntry(){
     out.rounds=clamp(Math.round(out.rounds),1,15);
     out.maxTurns=clamp(Math.round(out.maxTurns),3,200);
     out.ptLife=clamp(Math.round(out.ptLife),1,10);
+    out.coinLife=clamp(Math.round(out.coinLife),1,10);
+    out.coinTierSize=clamp(Math.round(out.coinTierSize)||100,1,100000);
     out.skillCosts={};
     out.skillParams={};
     for(const k of SKILL_IDS){
@@ -1432,9 +1549,10 @@ function renderHelpBody(){
   <h3>試合の流れ</h3>
   <ul class="rules">
     <li>全${cfg.rounds}ラウンドを行い、勝利数が多い方が試合に勝つ(引き分けはどちらの勝利数にも入らない)</li>
-    <li>各ラウンドの最初にショップで所持ptを使ってスキルを購入し、両者が確定したら戦闘開始</li>
-    <li>ラウンド勝利で+${cfg.winPt}pt、敗北で+${cfg.losePt}ptを獲得。ptは${cfg.ptLife}ラウンド後まで持ち越せる(古いptから消費)</li>
-    <li>基礎値: HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd}。ステータスの直接購入はなく、強化はすべてスキル経由</li>
+    <li>各ラウンドの最初にショップで所持pt・コインを使ってスキルやステータスを購入し、両者が確定したら戦闘開始</li>
+    <li>ラウンド勝利で+${cfg.winPt}pt、敗北で+${cfg.losePt}ptを獲得。ptは${cfg.ptLife}ラウンド後まで持ち越せる(古いptから消費)。ptはスキル購入専用</li>
+    <li>コインは勝敗に関係なく毎ラウンド+${cfg.coinPerRound}配布され、${cfg.coinLife}ラウンド後まで持ち越せる。コインはステータス購入専用で、買うほど単価が上がる(${cfg.coinTierSize}ユニットごとに+1コイン/ユニット)</li>
+    <li>基礎値: HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd}</li>
   </ul>
   <h3>戦闘の処理順</h3>
   <ul class="rules">
