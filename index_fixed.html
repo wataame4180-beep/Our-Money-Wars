@@ -268,7 +268,7 @@ const SKILLS = {
   evade:    {name:"回避",     icon:"💨", cost:400,  cat:'buff',   d:"速度が200以上のとき、相手の通常攻撃を1度だけ無効化する"},
   purge:    {name:"パージ",   icon:"🔥", cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
   castOn:   {name:"キャストオン", icon:"🪄", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
-  soulStrike:{name:"魂魄理念", icon:"👻", cost:600, cat:'active', d:"使用すると『魂の打撃』を付与し、通常攻撃が最大HPの5%ダメージになる(永続)。すでに付与中にもう一度使うと解除し、通常攻撃を攻撃力ベースの通常ダメージに戻す"},
+  soulStrike:{name:"魂魄理念", icon:"👻", cost:600, cat:'buff', d:"購入すると『魂の打撃』を付与し、通常攻撃が最大HPの5%ダメージになる(永続)。付与中にもう一度購入すると解除し、通常攻撃を攻撃力ベースの通常ダメージに戻す(解除時も購入費用はかかる)"},
 };
 const SKILL_IDS = Object.keys(SKILLS);
 const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
@@ -354,7 +354,7 @@ function descFor(k, cfg){
     case 'evade': return `速度が${p('spdThreshold')}以上のとき、相手の通常攻撃を1度だけ無効化する`;
     case 'purge': return `使用するとHPの${p('hpPct')}%を消費し、速度が${p('spdPct')}%上昇する(${p('turns')}ターン継続)`;
     case 'castOn': return `使用すると速度が${p('spdPct')}%低下し、防御力が${p('defPct')}%上昇する(${p('turns')}ターン継続)`;
-    case 'soulStrike': return `使用すると『魂の打撃』を付与し、通常攻撃が最大HPの${p('hpPct')}%ダメージになる(永続)。付与中にもう一度使うと解除し、通常攻撃を元(攻撃力ベース)に戻す`;
+    case 'soulStrike': return `購入すると『魂の打撃』を付与し、通常攻撃が最大HPの${p('hpPct')}%ダメージになる(永続)。付与中にもう一度購入すると解除し、通常攻撃を元(攻撃力ベース)に戻す(解除時も購入費用はかかる)`;
   }
   return SKILLS[k].d;
 }
@@ -486,12 +486,10 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     }
     return;
   }
-  /* 魂魄理念は何度でもトグルできるスキルなので、1戦闘1回の制限(A.used)だけ除外する */
-  const blockedByOnceOnly = actId!=='soulStrike' && A.used[actId];
-  if(blockedByOnceOnly || SKILLS[actId].cat!=='active' || !A.skills.includes(actId)){
+  if(A.used[actId] || SKILLS[actId].cat!=='active' || !A.skills.includes(actId)){
     log.push({c:tagA,t:`${A.nm}は行動できなかった`}); return;
   }
-  if(actId!=='soulStrike') A.used[actId]=true;
+  A.used[actId]=true;
   const s=SKILLS[actId];
   if(actId==='sleep'){
     A.sleepSkip=true;
@@ -559,14 +557,6 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     A.statBuffs.push({stat:'spd',delta:-spdDrop,turnsLeft:A.castOnTurns});
     A.statBuffs.push({stat:'def',delta:defBonus,turnsLeft:A.castOnTurns});
     log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
-  }
-  else if(actId==='soulStrike'){
-    A.hasSoulStrike = !A.hasSoulStrike;
-    if(A.hasSoulStrike){
-      log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 『魂の打撃』を付与。通常攻撃が最大HPの${Math.round(A.soulStrikePct*100)}%ダメージになる(以降のラウンドにも持ち越されます)`});
-    } else {
-      log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 『魂の打撃』を解除。通常攻撃が元のダメージに戻る(以降のラウンドにも持ち越されます)`});
-    }
   }
 }
 function fireTimed(P,O,cfg,log,tagP,tagO,R){
@@ -876,7 +866,8 @@ async function hostTick(){
 }
 
 function applyShop(intent, wallet, base, cfg){
-  const skills=(intent.skills||[]).filter(s=>SKILLS[s] && !(base.skills||[]).includes(s));
+  /* 魂魄理念だけは所持済でも再購入を許可する(購入のたびに付与/解除がトグルするため) */
+  const skills=(intent.skills||[]).filter(s=>SKILLS[s] && (s==='soulStrike' || !(base.skills||[]).includes(s)));
   const rerollCost=(()=>{let c=0;for(let i=0;i<(intent.rerolls||0);i++)c+=cfg.rerollBase*(i+1);return c})();
   const spend=skills.reduce((s,k)=>s+costOf(k,cfg),0) + rerollCost;
   const have=walletTotal(wallet);
@@ -910,9 +901,17 @@ async function startBattle(a,b){
   const rc2=applyCoinShop(b,S.coins[2],S.loadout[2],cfg);
   const load1={...r1.load, ...rc1.statBonus}, load2={...r2.load, ...rc2.statBonus};
   const hpBonus = S.hpBonus||{1:0,2:0};
-  const soulStrike = S.soulStrike||{1:false,2:false};
-  const f1=mkFighter(load1,cfg,S.names[1],hpBonus[1],soulStrike[1]), f2=mkFighter(load2,cfg,S.names[2],hpBonus[2],soulStrike[2]);
+  const soulStrike = {...(S.soulStrike||{1:false,2:false})};
   const log=[];
+  if(r1.ok && r1.newlyBought.includes('soulStrike')){
+    soulStrike[1] = !soulStrike[1];
+    log.push({c:'d1',icon:SKILLS.soulStrike.icon,t:`${SKILLS.soulStrike.icon} ${S.names[1]}: ${SKILLS.soulStrike.name}を購入 → ${soulStrike[1]?'『魂の打撃』を付与(以降のラウンドにも持ち越されます)':'『魂の打撃』を解除(以降のラウンドにも持ち越されます)'}`});
+  }
+  if(r2.ok && r2.newlyBought.includes('soulStrike')){
+    soulStrike[2] = !soulStrike[2];
+    log.push({c:'d2',icon:SKILLS.soulStrike.icon,t:`${SKILLS.soulStrike.icon} ${S.names[2]}: ${SKILLS.soulStrike.name}を購入 → ${soulStrike[2]?'『魂の打撃』を付与(以降のラウンドにも持ち越されます)':'『魂の打撃』を解除(以降のラウンドにも持ち越されます)'}`});
+  }
+  const f1=mkFighter(load1,cfg,S.names[1],hpBonus[1],soulStrike[1]), f2=mkFighter(load2,cfg,S.names[2],hpBonus[2],soulStrike[2]);
   if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のためスキル購入は無効`});
   if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のためスキル購入は無効`});
   if(!rc1.ok) log.push({c:'t',t:`${S.names[1]}: コイン不足のためステータス購入は無効`});
@@ -1208,7 +1207,7 @@ function renderShop(st){
     <h2>スキルショップ <small>3枠からランダム・カードごとに購入を確定します</small></h2>
     <div class="shop">
       ${opts.map(k=>{
-        const owned=ownedList.includes(k);
+        const owned=ownedList.includes(k) && k!=='soulStrike';
         const on=L.skills.includes(k);
         const afford = on || owned || availPt()>=costOf(k);
         return skillCard(k,owned,on,afford);
@@ -1491,13 +1490,13 @@ function renderEntry(){
     <p class="muted">ptはスキル購入専用、コインはステータス購入専用で、互いに流用できません。コインでの購入は買うほど単価が上がります(100ユニットごとに+1コイン/ユニット)。基礎値は左のここで変えられます。</p>
   </div>
   <div class="panel">
-    <h2>スキルの必要pt・効果値 <small>デモ用にすべて変更できます(空欄は初期値のまま)</small></h2>
+    <h2>スキルの必要pt・効果値 <small>デモ用にすべて変更できます(空欄は初期値のまま)・必要pt順</small></h2>
     <div class="shop">
-      ${SKILL_IDS.map(k=>{
+      ${SKILL_IDS.slice().sort((a,b)=>SKILLS[a].cost-SKILLS[b].cost).map(k=>{
         const s=SKILLS[k];
         const params=PARAM_DEFS[k]||[];
         return `<div class="skill" style="cursor:default">
-          <div class="h"><span class="nm">${esc(s.name)}</span></div>
+          <div class="h"><span class="nm">${s.icon||''} ${esc(s.name)}</span></div>
           <span class="tag ${tagClsFor(s)}">${tagFor(k)}</span>
           <div class="field"><label>必要pt</label><input class="num" id="skc_${k}" type="number" value="${s.cost}"></div>
           ${params.map(p=>`<div class="field"><label>${esc(p.label)}</label><input class="num" id="skp_${k}_${p.key}" type="number" value="${p.default}"></div>`).join('')}
