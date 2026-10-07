@@ -269,15 +269,25 @@ const SKILLS = {
   purge:    {name:"パージ",   icon:"🔥", cost:500,  cat:'active', d:"HPを10%消費し、速度を20%上げる(3ターン継続)"},
   castOn:   {name:"キャストオン", icon:"🪄", cost:300, cat:'active', d:"速度を10%下げて防御力を10%上げる(3ターン継続)"},
   soulStrike:{name:"魂魄理念", icon:"👻", cost:600, cat:'buff', d:"購入すると『魂の打撃』を付与し、通常攻撃が最大HPの5%ダメージになる(永続)。付与中にもう一度購入すると解除し、通常攻撃を攻撃力ベースの通常ダメージに戻す(解除時も購入費用はかかる)"},
+  cuteGaze: {name:"かわいいまなざし", icon:"😻", cost:550, cat:'active', d:"使用すると相手の攻撃力を30%下げる(3ターン継続)"},
 };
 const SKILL_IDS = Object.keys(SKILLS);
 const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
+/* ロールごとの基礎ステータス倍率(仮数値)。基礎値(部屋設定)に掛けて使う。
+   それぞれ1つのステータスに特化する代わりに、残り3つが低めになる。 */
+const ROLES = {
+  hp:  {name:'HP特化',   icon:'🛡️', desc:'HPに特化。攻撃・防御・速度は低め', mult:{hp:1.2, atk:0.8, def:0.8, spd:0.8}},
+  atk: {name:'攻撃力特化', icon:'⚔️', desc:'攻撃力に特化。HP・防御・速度は低め', mult:{hp:0.8, atk:1.2, def:0.8, spd:0.8}},
+  def: {name:'防御力特化', icon:'🧱', desc:'防御力に特化。HP・攻撃・速度は低め', mult:{hp:0.8, atk:0.8, def:1.2, spd:0.8}},
+  spd: {name:'速度特化',   icon:'💨', desc:'速度に特化。HP・攻撃・防御は低め', mult:{hp:0.8, atk:0.8, def:0.8, spd:1.2}},
+};
+const ROLE_IDS = Object.keys(ROLES);
 
 const DEFAULT_CFG = {
   rounds:7, startPt:1000, winPt:800, losePt:1000, ptLife:2,
   startCoin:1000, coinPerRound:1000, coinLife:2, coinTierSize:100,
   hpPerCoin:10, atkPerCoin:1, defPerCoin:1, spdPerCoin:1,
-  baseHp:5000, baseAtk:300, baseDef:100, baseSpd:100,
+  baseHp:30000, baseAtk:2000, baseDef:500, baseSpd:120, useRoles:true,
   formula:"ratio", minDmg:1, maxTurns:30, dblThr:2, rerollBase:100,
   resetEachRound:true
 };
@@ -323,11 +333,12 @@ const PARAM_DEFS = {
   comboAtk: [{key:'hits',   label:'連撃回数',              default:5},{key:'pct',label:'1発あたりの威力(%)',default:30}],
   autoheal5:[{key:'pct',    label:'回復量(%)',             default:20},{key:'turn',label:'発動ターン',default:5}],
   regenB:   [{key:'pct',    label:'回復率(%)',             default:40}],
-  evade:    [{key:'spdThreshold',label:'必要速度',         default:136}],
+  evade:    [{key:'spdThreshold',label:'必要速度',         default:140}],
   trade:    [{key:'turns',label:'継続ターン数',default:2}],
   purge:    [{key:'hpPct',label:'消費HP(%)',default:10},{key:'spdPct',label:'速度上昇(%)',default:20},{key:'turns',label:'継続ターン数',default:3}],
   castOn:   [{key:'spdPct',label:'速度低下(%)',default:10},{key:'defPct',label:'防御上昇(%)',default:10},{key:'turns',label:'継続ターン数',default:3}],
   soulStrike:[{key:'hpPct',label:'通常攻撃ダメージ(最大HPの%)',default:5}],
+  cuteGaze: [{key:'atkPct',label:'攻撃力低下(%)',default:30},{key:'turns',label:'継続ターン数',default:3}],
 };
 function paramOf(skillId, key, cfg){
   cfg = cfg || (typeof S!=='undefined' && S ? S.cfg : null);
@@ -355,6 +366,7 @@ function descFor(k, cfg){
     case 'purge': return `使用するとHPの${p('hpPct')}%を消費し、速度が${p('spdPct')}%上昇する(${p('turns')}ターン継続)`;
     case 'castOn': return `使用すると速度が${p('spdPct')}%低下し、防御力が${p('defPct')}%上昇する(${p('turns')}ターン継続)`;
     case 'soulStrike': return `購入すると『魂の打撃』を付与し、通常攻撃が最大HPの${p('hpPct')}%ダメージになる(永続)。付与中にもう一度購入すると解除し、通常攻撃を元(攻撃力ベース)に戻す(解除時も購入費用はかかる)`;
+    case 'cuteGaze': return `使用すると相手の攻撃力を${p('atkPct')}%下げる(${p('turns')}ターン継続)`;
   }
   return SKILLS[k].d;
 }
@@ -393,13 +405,16 @@ function walletSpend(w,amt){
 function walletExpire(w,round,life){ return (w||[]).filter(e=>round - e.round < life); }
 
 /* ============ 戦闘エンジン(ホストのみ実行) ============ */
-function mkFighter(load,cfg,nm,extraMaxHp,hasSoulStrike){
+function mkFighter(load,cfg,nm,extraMaxHp,hasSoulStrike,roleMult){
   const sk=load.skills||[];
   extraMaxHp = extraMaxHp||0;
+  roleMult = roleMult || {hp:1,atk:1,def:1,spd:1};
   const bHp=load.hp||0, bAtk=load.atk||0, bDef=load.def||0, bSpd=load.spd||0;
+  const rHp=Math.round(cfg.baseHp*roleMult.hp), rAtk=Math.round(cfg.baseAtk*roleMult.atk),
+        rDef=Math.round(cfg.baseDef*roleMult.def), rSpd=Math.round(cfg.baseSpd*roleMult.spd);
   return {
-    nm, maxHp:cfg.baseHp+extraMaxHp+bHp, hp:cfg.baseHp+extraMaxHp+bHp,
-    atk:cfg.baseAtk+bAtk, def:cfg.baseDef+bDef, spd:cfg.baseSpd+bSpd,
+    nm, maxHp:rHp+extraMaxHp+bHp, hp:rHp+extraMaxHp+bHp,
+    atk:rAtk+bAtk, def:rDef+bDef, spd:rSpd+bSpd,
     skills:sk, used:{}, fired:{}, sleepBonusEarned:0,
     hasSoulStrike: !!hasSoulStrike,
     soulStrikePct: paramOf('soulStrike','hpPct',cfg)/100,
@@ -425,6 +440,8 @@ function mkFighter(load,cfg,nm,extraMaxHp,hasSoulStrike){
     regenPct:     paramOf('regenB','pct',cfg)/100,
     evadeThreshold:paramOf('evade','spdThreshold',cfg),
     tradeTurns:   paramOf('trade','turns',cfg),
+    cuteGazeAtkPct: paramOf('cuteGaze','atkPct',cfg)/100,
+    cuteGazeTurns:  paramOf('cuteGaze','turns',cfg),
     purgeHpPct:   paramOf('purge','hpPct',cfg)/100,
     purgeSpdPct:  paramOf('purge','spdPct',cfg)/100,
     purgeTurns:   paramOf('purge','turns',cfg),
@@ -558,6 +575,12 @@ function doAction(A,D,act,cfg,log,tagA,tagD,R){
     A.statBuffs.push({stat:'def',delta:defBonus,turnsLeft:A.castOnTurns});
     log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 速度-${spdDrop}・防御力+${defBonus}(${A.castOnTurns}ターン)`});
   }
+  else if(actId==='cuteGaze'){
+    const atkDrop=Math.round(D.atk*A.cuteGazeAtkPct);
+    D.atk=Math.max(0,D.atk-atkDrop);
+    D.statBuffs.push({stat:'atk',delta:-atkDrop,turnsLeft:A.cuteGazeTurns});
+    log.push({c:tagA,icon:s.icon,t:`${s.icon} ${s.name} → 相手の攻撃力を${atkDrop}下げた(${A.cuteGazeTurns}ターン)`});
+  }
 }
 function fireTimed(P,O,cfg,log,tagP,tagO,R){
   for(const k of P.skills){
@@ -655,7 +678,7 @@ function resolveTurn(B,a1,a2,cfg,seed){
 
 /* ============ 通信・状態 ============ */
 let db=null, S=null, code=null, me=null, role=0, unsubs=[], I1=null, I2=null, busy=false, busySince=0;
-let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null,buy:{hp:0,atk:0,def:0,spd:0}};
+let L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null,buy:{hp:0,atk:0,def:0,spd:0},roleChoice:null,roleReady:false};
 let lobbyDrawn=false;
 
 function clientId(){
@@ -664,7 +687,7 @@ function clientId(){
   return id;
 }
 function myName(){ return localStorage.getItem('bsim_name') || ''; }
-function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null,buy:{hp:0,atk:0,def:0,spd:0}}; }
+function resetLocal(){ L={skills:[],rerolls:0,rerollSpent:0,ready:false,act:null,tradeSel:[],tradeTarget:null,buy:{hp:0,atk:0,def:0,spd:0},roleChoice:null,roleReady:false}; }
 
 async function setState(patch){
   S = {...S, ...patch};
@@ -728,6 +751,7 @@ function hydrateMatch(m){
   m.loadout[2].skills = m.loadout[2].skills || [];
   m.matchEndVotes = m.matchEndVotes || {1:false,2:false};
   m.matchId = m.matchId || 1;
+  m.roles = m.roles || {1:null,2:null};
   m.hpBonus = m.hpBonus || {1:0,2:0};
   m.hpBonus[1] = m.hpBonus[1] || 0;
   m.hpBonus[2] = m.hpBonus[2] || 0;
@@ -840,6 +864,13 @@ async function hostTick(){
       await setState({guest:I2.clientId, names:{...S.names, 2:I2.name||'プレイヤー2'}});
       render();
     }
+    else if(S.phase==='roleSelect'){
+      const r1=I1&&I1.roleChoice&&ROLES[I1.roleChoice]?I1.roleChoice:null;
+      const r2=I2&&I2.roleChoice&&ROLES[I2.roleChoice]?I2.roleChoice:null;
+      if(r1 && r2){
+        await setState({phase:'shop', roles:{1:r1,2:r2}});
+      }
+    }
     else if(S.phase==='shop'){
       const a=I1&&I1.shop&&I1.shop.round===S.round?I1.shop:null;
       const b=I2&&I2.shop&&I2.shop.round===S.round?I2.shop:null;
@@ -911,7 +942,9 @@ async function startBattle(a,b){
     soulStrike[2] = !soulStrike[2];
     log.push({c:'d2',icon:SKILLS.soulStrike.icon,t:`${SKILLS.soulStrike.icon} ${S.names[2]}: ${SKILLS.soulStrike.name}を購入 → ${soulStrike[2]?'『魂の打撃』を付与(以降のラウンドにも持ち越されます)':'『魂の打撃』を解除(以降のラウンドにも持ち越されます)'}`});
   }
-  const f1=mkFighter(load1,cfg,S.names[1],hpBonus[1],soulStrike[1]), f2=mkFighter(load2,cfg,S.names[2],hpBonus[2],soulStrike[2]);
+  const NEUTRAL_MULT={hp:1,atk:1,def:1,spd:1};
+  const roleMult1=(ROLES[S.roles&&S.roles[1]]||{mult:NEUTRAL_MULT}).mult, roleMult2=(ROLES[S.roles&&S.roles[2]]||{mult:NEUTRAL_MULT}).mult;
+  const f1=mkFighter(load1,cfg,S.names[1],hpBonus[1],soulStrike[1],roleMult1), f2=mkFighter(load2,cfg,S.names[2],hpBonus[2],soulStrike[2],roleMult2);
   if(!r1.ok) log.push({c:'t',t:`${S.names[1]}: pt不足のためスキル購入は無効`});
   if(!r2.ok) log.push({c:'t',t:`${S.names[2]}: pt不足のためスキル購入は無効`});
   if(!rc1.ok) log.push({c:'t',t:`${S.names[1]}: コイン不足のためステータス購入は無効`});
@@ -975,6 +1008,7 @@ async function createRoom(name,cfg){
     host:me,guest:null,names:{1:name,2:'プレイヤー2'},cfg,
     phase:'lobby',round:1,wins:{1:0,2:0},history:[],
     matchEndVotes:{1:false,2:false},endedEarly:false,matchId:1,hpBonus:{1:0,2:0},soulStrike:{1:false,2:false},
+    roles:{1:null,2:null},
     wallets:{1:[{round:1,amt:cfg.startPt}],2:[{round:1,amt:cfg.startPt}]},
     coins:{1:[{round:1,amt:cfg.startCoin}],2:[{round:1,amt:cfg.startCoin}]},
     loadout:{1:{skills:[],hp:0,atk:0,def:0,spd:0},2:{skills:[],hp:0,atk:0,def:0,spd:0}},
@@ -1071,7 +1105,8 @@ function render(){
     if(!S){ return; }
     if(S.phase==='lobby'){ renderLobby(st); return; }
     lobbyDrawn=false;
-    if(S.phase==='shop') renderShop(st);
+    if(S.phase==='roleSelect') renderRoleSelect(st);
+    else if(S.phase==='shop') renderShop(st);
     else if(S.phase==='battle') renderBattle(st);
     else if(S.phase==='roundEnd') renderRoundEnd(st);
     else if(S.phase==='matchEnd') renderMatchEnd(st);
@@ -1081,6 +1116,42 @@ function render(){
     const st=$('#stage');
     if(st) st.innerHTML += `<div class="panel"><p class="muted">直前の描画でエラーが発生しました。ページを再読み込みすると復帰することがあります。</p></div>`;
   }
+}
+
+function renderRoleSelect(st){
+  const myChoice = L.roleChoice;
+  const oppReady = role===1 ? !!(I2&&I2.roleChoice&&ROLES[I2.roleChoice]) : false;
+  st.innerHTML=`
+  <div class="panel">
+    <h2>ロールを選択 <small>試合開始前に1度だけ選びます。あとから変更できません</small></h2>
+    <div class="shop">
+      ${ROLE_IDS.map(k=>{
+        const r=ROLES[k];
+        const cfg=S.cfg;
+        const on=myChoice===k;
+        return `<div class="skill ${on?'on':''}">
+          <div class="h"><span class="nm">${r.icon} ${r.name}</span></div>
+          <span class="d">${r.desc}</span>
+          <span class="sub num" style="margin-top:4px">HP${Math.round(cfg.baseHp*r.mult.hp)}　攻${Math.round(cfg.baseAtk*r.mult.atk)}　防${Math.round(cfg.baseDef*r.mult.def)}　速${Math.round(cfg.baseSpd*r.mult.spd)}</span>
+          <button class="btn ${on?'':'ghost'} sm" style="margin-top:8px" data-role="${k}" ${L.roleReady?'disabled':''}>${on?'選択中':'これを選ぶ'}</button>
+        </div>`;
+      }).join('')}
+    </div>
+  </div>
+  <div class="panel">
+    <div class="row">
+      <button class="btn" id="roleReadyBtn" ${(!myChoice||L.roleReady)?'disabled':''}>${L.roleReady?'相手を待っています…':'このロールで確定'}</button>
+      ${role===1?`<span class="muted">${oppReady?'相手は確定済み':'相手はまだ選択中'}</span>`:''}
+    </div>
+  </div>`;
+  st.querySelectorAll('[data-role]').forEach(b=>b.onclick=()=>{
+    if(L.roleReady) return;
+    L.roleChoice=b.dataset.role; render();
+  });
+  const rb=$('#roleReadyBtn'); if(rb) rb.onclick=async()=>{
+    L.roleReady=true; render();
+    await safeIntentUpdate({clientId:me,name:S.names[role], roleChoice:L.roleChoice}, ()=>{ L.roleReady=false; });
+  };
 }
 
 function renderLobby(st){
@@ -1096,7 +1167,7 @@ function renderLobby(st){
       <p class="muted" id="waitLine"></p>
       ${role===1?`<div class="row" style="margin-top:12px"><button class="btn" id="startBtn">試合を始める</button></div>`:''}
     </div>`;
-    if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await safeSetState({phase:'shop'}); };
+    if(role===1) $('#startBtn').onclick=async()=>{ resetLocal(); await safeSetState({phase:S.cfg.useRoles?'roleSelect':'shop'}); };
     const cb=$('#copyCodeBtn'); if(cb) cb.onclick=async()=>{
       try{
         await navigator.clipboard.writeText(code);
@@ -1157,6 +1228,8 @@ function coinStatLine(key,label,baseVal,perCoin){
 }
 function renderShop(st){
   const cfg=S.cfg, base=S.loadout[role];
+  const myRole = ROLES[S.roles&&S.roles[role]] || null;
+  const myRoleMult = myRole ? myRole.mult : {hp:1,atk:1,def:1,spd:1};
   const opts=shopFor(code,S.round,role,L.rerolls);
   const nextReroll=cfg.rerollBase*(L.rerolls+1);
   const wallet=S.wallets[role];
@@ -1175,7 +1248,8 @@ function renderShop(st){
       ${coinWallet.map(e=>`<span class="chip num${S.round-e.round===cfg.coinLife-1?' warn':''}">R${e.round}獲得 ${e.amt}コイン${S.round-e.round===cfg.coinLife-1?' ・今R限り':''}</span>`).join('')}
     </div>
     <div class="stats" style="margin-top:10px">
-      <div class="stat"><div class="nm">基礎値</div><div class="val num">HP${cfg.baseHp}　攻${cfg.baseAtk}　防${cfg.baseDef}　速${cfg.baseSpd}</div></div>
+      <div class="stat"><div class="nm">基礎値</div><div class="val num">HP${Math.round(cfg.baseHp*myRoleMult.hp)}　攻${Math.round(cfg.baseAtk*myRoleMult.atk)}　防${Math.round(cfg.baseDef*myRoleMult.def)}　速${Math.round(cfg.baseSpd*myRoleMult.spd)}</div></div>
+      <div class="stat"><div class="nm">ロール</div><div class="val num">${myRole?`${myRole.icon} ${myRole.name}`:'未選択'}</div></div>
     </div>
   </div>
 
@@ -1439,8 +1513,9 @@ function renderMatchEnd(st){
   const ab=$('#againBtn'); if(ab) ab.onclick=async()=>{
     resetLocal();
     if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
-    await safeSetState({phase:'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
+    await safeSetState({phase:S.cfg.useRoles?'roleSelect':'shop',round:1,wins:{1:0,2:0},history:[],battle:null,
       matchEndVotes:{1:false,2:false},endedEarly:false,matchId:(S.matchId||1)+1,hpBonus:{1:0,2:0},soulStrike:{1:false,2:false},
+      roles:{1:null,2:null},
       wallets:{1:[{round:1,amt:S.cfg.startPt}],2:[{round:1,amt:S.cfg.startPt}]},
       coins:{1:[{round:1,amt:S.cfg.startCoin}],2:[{round:1,amt:S.cfg.startCoin}]},
       loadout:{1:{skills:[],hp:0,atk:0,def:0,spd:0},2:{skills:[],hp:0,atk:0,def:0,spd:0}}});
@@ -1486,6 +1561,8 @@ function renderEntry(){
         </select></div>
       <div class="field"><label>ラウンドごとにスキル所持をリセット</label>
         <select id="cfg_resetEachRound"><option value="1">リセットする</option><option value="0">持ち越す</option></select></div>
+      <div class="field"><label>ロール選択(試合開始前に1度選ぶ基礎ステータス補正)</label>
+        <select id="cfg_useRoles"><option value="1">行う</option><option value="0">行わない</option></select></div>
     </div>
     <p class="muted">ptはスキル購入専用、コインはステータス購入専用で、互いに流用できません。コインでの購入は買うほど単価が上がります(100ユニットごとに+1コイン/ユニット)。基礎値は左のここで変えられます。</p>
   </div>
@@ -1510,6 +1587,7 @@ function renderEntry(){
       const el=document.getElementById('cfg_'+k); if(!el)continue;
       if(k==='formula') out[k]=el.value;
       else if(k==='resetEachRound') out[k]=el.value==='1';
+      else if(k==='useRoles') out[k]=el.value==='1';
       else out[k]=parseFloat(el.value)||0;
     }
     out.rounds=clamp(Math.round(out.rounds),1,15);
@@ -1551,7 +1629,7 @@ function renderHelpBody(){
     <li>各ラウンドの最初にショップで所持pt・コインを使ってスキルやステータスを購入し、両者が確定したら戦闘開始</li>
     <li>ラウンド勝利で+${cfg.winPt}pt、敗北で+${cfg.losePt}ptを獲得。ptは${cfg.ptLife}ラウンド後まで持ち越せる(古いptから消費)。ptはスキル購入専用</li>
     <li>コインは勝敗に関係なく毎ラウンド+${cfg.coinPerRound}配布され、${cfg.coinLife}ラウンド後まで持ち越せる。コインはステータス購入専用で、買うほど単価が上がる(${cfg.coinTierSize}ユニットごとに+1コイン/ユニット)</li>
-    <li>基礎値: HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd}</li>
+    <li>部屋作成後、両者は試合開始前に1度だけロール(HP特化・攻撃力特化・防御力特化・速度特化)を選ぶ。選んだロールに応じて基礎値(HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd})が倍率で補正される</li>
   </ul>
   <h3>戦闘の処理順</h3>
   <ul class="rules">
