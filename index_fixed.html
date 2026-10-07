@@ -289,7 +289,7 @@ const DEFAULT_CFG = {
   hpPerCoin:10, atkPerCoin:1, defPerCoin:1, spdPerCoin:1,
   baseHp:30000, baseAtk:2000, baseDef:500, baseSpd:120, useRoles:true,
   formula:"ratio", minDmg:1, maxTurns:30, dblThr:2, rerollBase:100,
-  resetEachRound:true
+  resetEachRound:true, resetStatsEachRound:true
 };
 
 /* ============ ユーティリティ ============ */
@@ -992,8 +992,17 @@ async function nextRound(){
   const nextR=S.round+1;
   const w={1:walletExpire(S.wallets[1],nextR,cfg.ptLife),2:walletExpire(S.wallets[2],nextR,cfg.ptLife)};
   const coins={1:walletExpire(S.coins[1],nextR,cfg.coinLife),2:walletExpire(S.coins[2],nextR,cfg.coinLife)};
-  const blank={skills:[],hp:0,atk:0,def:0,spd:0};
-  const load=cfg.resetEachRound?{1:{...blank},2:{...blank}}:S.loadout;
+  const carryOver=(p)=>{
+    const prev=S.loadout[p]||{};
+    return {
+      skills: cfg.resetEachRound ? [] : (prev.skills||[]),
+      hp:  cfg.resetStatsEachRound ? 0 : (prev.hp||0),
+      atk: cfg.resetStatsEachRound ? 0 : (prev.atk||0),
+      def: cfg.resetStatsEachRound ? 0 : (prev.def||0),
+      spd: cfg.resetStatsEachRound ? 0 : (prev.spd||0),
+    };
+  };
+  const load={1:carryOver(1),2:carryOver(2)};
   resetLocal();
   if(!await safeIntentUpdate({clientId:me,name:S.names[role]})) return;
   await safeSetState({phase:'shop',round:nextR,wallets:w,coins,loadout:load,battle:null});
@@ -1561,10 +1570,12 @@ function renderEntry(){
         </select></div>
       <div class="field"><label>ラウンドごとにスキル所持をリセット</label>
         <select id="cfg_resetEachRound"><option value="1">リセットする</option><option value="0">持ち越す</option></select></div>
+      <div class="field"><label>ラウンドごとにコイン購入ステータスをリセット</label>
+        <select id="cfg_resetStatsEachRound"><option value="1">リセットする</option><option value="0">持ち越す</option></select></div>
       <div class="field"><label>ロール選択(試合開始前に1度選ぶ基礎ステータス補正)</label>
         <select id="cfg_useRoles"><option value="1">行う</option><option value="0">行わない</option></select></div>
     </div>
-    <p class="muted">ptはスキル購入専用、コインはステータス購入専用で、互いに流用できません。コインでの購入は買うほど単価が上がります(100ユニットごとに+1コイン/ユニット)。基礎値は左のここで変えられます。</p>
+    <p class="muted">ptはスキル購入専用、コインはステータス購入専用で、互いに流用できません。コインでの購入は買うほど単価が上がります(100ユニットごとに+1コイン/ユニット)。スキルの持ち越しとステータス購入の持ち越しは別々に設定できます。基礎値は左のここで変えられます。</p>
   </div>
   <div class="panel">
     <h2>スキルの必要pt・効果値 <small>デモ用にすべて変更できます(空欄は初期値のまま)・必要pt順</small></h2>
@@ -1587,6 +1598,7 @@ function renderEntry(){
       const el=document.getElementById('cfg_'+k); if(!el)continue;
       if(k==='formula') out[k]=el.value;
       else if(k==='resetEachRound') out[k]=el.value==='1';
+      else if(k==='resetStatsEachRound') out[k]=el.value==='1';
       else if(k==='useRoles') out[k]=el.value==='1';
       else out[k]=parseFloat(el.value)||0;
     }
