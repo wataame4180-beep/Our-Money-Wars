@@ -257,7 +257,7 @@ const SKILLS = {
   sleep:    {name:"睡眠",     icon:"💤", cost:500,  cat:'active', d:"使用すると次のターンは行動できなくなる代わりに、最大HPが5%増える(この増加分は以降全ラウンドに持ち越される)"},
   dot:      {name:"持続攻撃", icon:"☠️", cost:1500, cat:'active', d:"相手に500ダメージを、3ターンの間毎ターン与え続ける"},
   pierce:   {name:"貫通攻撃", icon:"🏹", cost:1450, cat:'active', d:"攻撃力の5倍の固定ダメージを与える。相手のスキルの効果を一切受けない"},
-  insurance:{name:"傷害保険", icon:"🛡️", cost:350,  cat:'buff',   d:"所持しているラウンドの間、ダメージを受けるたびに(受けたダメージ×0.5)ptを獲得する(端数切り捨て)"},
+  insurance:{name:"傷害保険", icon:"🩹", cost:350,  cat:'buff',   d:"所持しているラウンドの間、ダメージを受けるたびに(受けたダメージ×0.5)ptを獲得する(端数切り捨て)"},
   econSkill:{name:"ス〇ーピース保険", icon:"💰", cost:350, cat:'econ', d:"購入した次のラウンド開始時に600ptを獲得する"},
   drGuard:  {name:"被ダメ軽減", icon:"🧱", cost:300, cat:'active', d:"使用したターンから3ターンの間、受けるダメージを10%軽減する"},
   reflect:  {name:"反射",     icon:"🪞", cost:400,  cat:'active', d:"使用後、次に受けるダメージの30%を相手に返す(それで相手が死ぬことはない)"},
@@ -276,9 +276,9 @@ const STAT_LABEL = {hp:'HP', atk:'攻撃力', def:'防御力', spd:'速度'};
 /* ロールごとの基礎ステータス倍率(仮数値)。基礎値(部屋設定)に掛けて使う。
    それぞれ1つのステータスに特化する代わりに、残り3つが低めになる。 */
 const ROLES = {
-  hp:  {name:'HP特化',   icon:'🛡️', desc:'HPに特化。攻撃・防御・速度は低め', mult:{hp:1.2, atk:0.8, def:0.8, spd:0.8}},
+  hp:  {name:'HP特化',   icon:'❤️', desc:'HPに特化。攻撃・防御・速度は低め', mult:{hp:1.2, atk:0.8, def:0.8, spd:0.8}},
   atk: {name:'攻撃力特化', icon:'⚔️', desc:'攻撃力に特化。HP・防御・速度は低め', mult:{hp:0.8, atk:1.2, def:0.8, spd:0.8}},
-  def: {name:'防御力特化', icon:'🧱', desc:'防御力に特化。HP・攻撃・速度は低め', mult:{hp:0.8, atk:0.8, def:1.2, spd:0.8}},
+  def: {name:'防御力特化', icon:'🛡️', desc:'防御力に特化。HP・攻撃・速度は低め', mult:{hp:0.8, atk:0.8, def:1.2, spd:0.8}},
   spd: {name:'速度特化',   icon:'💨', desc:'速度に特化。HP・攻撃・防御は低め', mult:{hp:0.8, atk:0.8, def:0.8, spd:1.2}},
 };
 const ROLE_IDS = Object.keys(ROLES);
@@ -1641,8 +1641,16 @@ function renderHelpBody(){
     <li>各ラウンドの最初にショップで所持pt・コインを使ってスキルやステータスを購入し、両者が確定したら戦闘開始</li>
     <li>ラウンド勝利で+${cfg.winPt}pt、敗北で+${cfg.losePt}ptを獲得。ptは${cfg.ptLife}ラウンド後まで持ち越せる(古いptから消費)。ptはスキル購入専用</li>
     <li>コインは勝敗に関係なく毎ラウンド+${cfg.coinPerRound}配布され、${cfg.coinLife}ラウンド後まで持ち越せる。コインはステータス購入専用で、買うほど単価が上がる(${cfg.coinTierSize}ユニットごとに+1コイン/ユニット)</li>
-    <li>部屋作成後、両者は試合開始前に1度だけロール(HP特化・攻撃力特化・防御力特化・速度特化)を選ぶ。選んだロールに応じて基礎値(HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd})が倍率で補正される</li>
+    <li>部屋作成後、両者は試合開始前に1度だけロールを選ぶ(ホストの設定で無効化されていることもある)。選んだロールに応じて基礎値(HP${cfg.baseHp}・攻撃力${cfg.baseAtk}・防御力${cfg.baseDef}・速度${cfg.baseSpd})が倍率で補正される。一度選ぶと試合中は変更できない</li>
   </ul>
+  ${cfg.useRoles===false ? '' : `
+  <h3>ロール</h3>
+  <ul class="rules">
+    ${ROLE_IDS.map(k=>{
+      const r=ROLES[k];
+      return `<li>${r.icon} <b>${esc(r.name)}</b> ─ ${esc(r.desc)}(HP${Math.round(cfg.baseHp*r.mult.hp)}・攻撃力${Math.round(cfg.baseAtk*r.mult.atk)}・防御力${Math.round(cfg.baseDef*r.mult.def)}・速度${Math.round(cfg.baseSpd*r.mult.spd)})</li>`;
+    }).join('')}
+  </ul>`}
   <h3>戦闘の処理順</h3>
   <ul class="rules">
     <li>毎ターン、両者は行動(通常攻撃 or 使用スキル)を選び、速度が高い方から順に処理される</li>
